@@ -1,0 +1,20 @@
+{
+  "name": "money-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A modular monolith for small subscription software products.",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,green \"npm run dev --workspace=@platform/web\" \"npm run dev --workspace=@platform/api\"",
+    "build": "npm run build --workspace=@platform/web && npm run build --workspace=@platform/api",
+    "build:static": "npm run build:static --workspace=@platform/web",
+    "check": "npm run check --workspace=@platform/web && npm run check --workspace=@platform/api",
+    "test": "npm run test --workspace=@platform/web",
+    "test:proof:integration": "node scripts/proof-api-integration.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

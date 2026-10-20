@@ -1,0 +1,101 @@
+import { useEffect, useState, type FormEvent } from 'react'
+
+type Service = { id: string; name: string; description: string; price_ngn: number; duration_minutes: number; buffer_minutes: number; active: boolean }
+type Business = { name: string; slug: string; whatsapp?: string | null }
+type Appointment = { id: string; service_id: string; customer_name: string; phone: string; service_name: string; starts_at: string; status: string; reference: string }
+type Hours = { weekday: number; opensAt: string; closesAt: string }
+type Break = { weekday: number; startsAt: string; endsAt: string }
+
+const input = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm'
+const label = 'mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600'
+const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+async function api(path: string, options?: RequestInit) {
+  const response = await fetch(path, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) }, ...options })
+  const body = response.status === 204 ? null : await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body?.error ?? 'Something went wrong.')
+  return body
+}
+
+function Field({ name, value, set, type = 'text' }: { name: string; value: string; set: (value: string) => void; type?: string }) {
+  return <label className={label}>{name}<input className={input} type={type} value={value} onChange={(event) => set(event.target.value)} /></label>
+}
+
+export function ProviderBooking() {
+  const [business, setBusiness] = useState<Business | null>(null)
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [notice, setNotice] = useState('')
+  const [services, setServices] = useState<Service[]>([])
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [authForm, setAuthForm] = useState({ email: '', password: '', name: '', slug: '' })
+  const [serviceForm, setServiceForm] = useState({ name: '', description: '', price: '', duration: '60', buffer: '0' })
+  const [editingService, setEditingService] = useState<Service | null>(null)
+  const [settings, setSettings] = useState({ name: '', slug: '', whatsapp: '', hours: [{ weekday: 1, opensAt: '09:00', closesAt: '17:00' }] as Hours[], breaks: [] as Break[], blockedDates: [] as string[] })
+  const [rescheduling, setRescheduling] = useState<Appointment | null>(null)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleTime, setRescheduleTime] = useState('')
+  const [rescheduleSlots, setRescheduleSlots] = useState<string[]>([])
+
+  async function load() {
+    try {
+      const me = await api('/api/auth/me')
+      const [serviceRows, appointmentRows, saved] = await Promise.all([api('/api/booking/services'), api('/api/booking/appointments'), api('/api/booking/settings')])
+      setBusiness(me.business)
+      setServices(serviceRows)
+      setAppointments(appointmentRows)
+      setSettings({ name: saved.business.name, slug: saved.business.slug, whatsapp: saved.business.whatsapp ?? '', hours: saved.hours.map((item: any) => ({ weekday: item.weekday, opensAt: item.opens_at.slice(0, 5), closesAt: item.closes_at.slice(0, 5) })), breaks: saved.breaks.map((item: any) => ({ weekday: item.weekday, startsAt: item.starts_at.slice(0, 5), endsAt: item.ends_at.slice(0, 5) })), blockedDates: saved.blockedDates })
+    } catch { setBusiness(null) }
+  }
+  useEffect(() => { void load() }, [])
+
+  async function authenticate(event: FormEvent) {
+    event.preventDefault(); setNotice('')
+    try {
+      const body = mode === 'signup' ? { email: authForm.email, password: authForm.password, businessName: authForm.name, slug: authForm.slug } : { email: authForm.email, password: authForm.password }
+      await api(mode === 'signup' ? '/api/auth/register' : '/api/auth/login', { method: 'POST', body: JSON.stringify(body) })
+      await load(); setNotice('Signed in. Your Booking workspace is account-backed.')
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not sign in.') }
+  }
+
+  async function saveService(event: FormEvent) {
+    event.preventDefault()
+    try {
+      const body = { name: serviceForm.name, description: serviceForm.description, priceNgn: Number(serviceForm.price), durationMinutes: Number(serviceForm.duration), bufferMinutes: Number(serviceForm.buffer), active: editingService?.active ?? true }
+      await api(editingService ? `/api/booking/services/${editingService.id}` : '/api/booking/services', { method: editingService ? 'PATCH' : 'POST', body: JSON.stringify(body) })
+      setEditingService(null); setServiceForm({ name: '', description: '', price: '', duration: '60', buffer: '0' }); await load(); setNotice('Service saved.')
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not save service.') }
+  }
+
+  async function loadRescheduleSlots(date: string, appointment: Appointment) {
+    setRescheduleDate(date); setRescheduleTime('')
+    if (!business || !date) return setRescheduleSlots([])
+    try { setRescheduleSlots((await api(`/api/public/book/${business.slug}/availability?serviceId=${appointment.service_id}&date=${date}`)).slots) } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not load availability.') }
+  }
+
+  async function reschedule() {
+    if (!rescheduling || !rescheduleDate || !rescheduleTime) return
+    try {
+      const startsAt = new Date(`${rescheduleDate}T${rescheduleTime}:00+01:00`).toISOString()
+      await api(`/api/booking/appointments/${rescheduling.id}`, { method: 'PATCH', body: JSON.stringify({ startsAt }) })
+      await load(); setRescheduling(null); setNotice(`Appointment rescheduled. Copy this message: Your booking ${rescheduling.reference} has moved to ${rescheduleDate} at ${rescheduleTime}.`)
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not reschedule appointment.') }
+  }
+
+  if (!business) return <section className="mx-auto max-w-md px-5 py-10"><a href="/tools/booking" className="text-sm font-bold text-emerald-700">← Local Booking Manager</a><h1 className="mt-4 text-3xl font-black">Provider sign in</h1><p className="mt-2 text-slate-600">Sign in to manage a local PostgreSQL-backed booking page.</p>{notice && <Notice text={notice} />}<form onSubmit={authenticate} className="mt-6 rounded-2xl border bg-white p-5"><Field name="Email" type="email" value={authForm.email} set={(email) => setAuthForm({ ...authForm, email })} /><Field name="Password" type="password" value={authForm.password} set={(password) => setAuthForm({ ...authForm, password })} />{mode === 'signup' && <><Field name="Business name" value={authForm.name} set={(name) => setAuthForm({ ...authForm, name })} /><Field name="Booking page slug" value={authForm.slug} set={(slug) => setAuthForm({ ...authForm, slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /></>}<button className="mt-5 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-bold text-white">{mode === 'signup' ? 'Create provider account' : 'Sign in'}</button><button type="button" onClick={() => setMode(mode === 'signup' ? 'signin' : 'signup')} className="ml-3 text-sm font-bold text-emerald-700">{mode === 'signup' ? 'I already have an account' : 'Create an account'}</button></form></section>
+
+  return <section className="mx-auto max-w-6xl px-5 py-8 sm:px-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><a href="/tools/booking" className="text-sm font-bold text-emerald-700">← Local Booking Manager</a><h1 className="mt-2 text-3xl font-black">{business.name} Booking</h1><p className="mt-1 text-slate-600">Account-backed provider workspace. Local prototype records remain separate.</p></div><div className="flex gap-3"><a className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold" href={`/book/${business.slug}`} target="_blank" rel="noreferrer">Open booking page</a><button onClick={async () => { await api('/api/auth/logout', { method: 'POST' }); setBusiness(null) }} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white">Sign out</button></div></div>{notice && <Notice text={notice} />}<div className="mt-7 grid gap-6 lg:grid-cols-2"><form onSubmit={saveService} className="rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">{editingService ? 'Edit service' : 'Services'}</h2><Field name="Service name" value={serviceForm.name} set={(name) => setServiceForm({ ...serviceForm, name })} /><Field name="Description" value={serviceForm.description} set={(description) => setServiceForm({ ...serviceForm, description })} /><div className="grid grid-cols-3 gap-3"><Field name="NGN" type="number" value={serviceForm.price} set={(price) => setServiceForm({ ...serviceForm, price })} /><Field name="Minutes" type="number" value={serviceForm.duration} set={(duration) => setServiceForm({ ...serviceForm, duration })} /><Field name="Buffer" type="number" value={serviceForm.buffer} set={(buffer) => setServiceForm({ ...serviceForm, buffer })} /></div><button className="mt-5 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">{editingService ? 'Save service' : 'Add service'}</button>{editingService && <button type="button" onClick={() => { setEditingService(null); setServiceForm({ name: '', description: '', price: '', duration: '60', buffer: '0' }) }} className="ml-3 text-sm font-bold">Cancel</button>}<div className="mt-5 space-y-2">{services.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm"><span><b>{item.name}</b> · ₦{item.price_ngn.toLocaleString()} · {item.duration_minutes} min · {item.active ? 'Active' : 'Inactive'}</span><span className="flex gap-3"><button type="button" onClick={() => { setEditingService(item); setServiceForm({ name: item.name, description: item.description, price: String(item.price_ngn), duration: String(item.duration_minutes), buffer: String(item.buffer_minutes) }) }} className="font-bold text-emerald-700">Edit</button><button type="button" onClick={async () => { await api(`/api/booking/services/${item.id}`, { method: 'PATCH', body: JSON.stringify({ name: item.name, description: item.description, priceNgn: item.price_ngn, durationMinutes: item.duration_minutes, bufferMinutes: item.buffer_minutes, active: !item.active }) }); await load() }} className="font-bold text-amber-700">{item.active ? 'Deactivate' : 'Activate'}</button></span></div>)}</div></form><SettingsForm settings={settings} setSettings={setSettings} onSave={async () => { try { await api('/api/booking/settings', { method: 'PUT', body: JSON.stringify(settings) }); await load(); setNotice('Availability settings saved.') } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not save settings.') } }} /></div><section className="mt-6 rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">Booking requests & appointments</h2><div className="mt-4 space-y-2">{appointments.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm"><span><b>{item.customer_name}</b> · {item.service_name} · {new Date(item.starts_at).toLocaleString()} · {item.status}</span><span className="flex gap-2">{item.status === 'Pending' && <button onClick={async () => { await api(`/api/booking/appointments/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Confirmed' }) }); await load() }} className="font-bold text-emerald-700">Confirm</button>}{['Pending', 'Confirmed'].includes(item.status) && <button onClick={() => { setRescheduling(item); void loadRescheduleSlots(item.starts_at.slice(0, 10), item) }} className="font-bold text-emerald-700">Reschedule</button>}<button onClick={async () => { await api(`/api/booking/appointments/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Cancelled' }) }); await load() }} className="font-bold text-rose-600">Cancel</button></span></div>)}</div></section>{rescheduling && <section className="fixed inset-0 z-20 grid place-items-center bg-slate-950/30 p-5"><div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"><h2 className="text-xl font-black">Reschedule {rescheduling.customer_name}</h2><p className="mt-1 text-sm text-slate-600">Reference {rescheduling.reference}; customer details and reference stay unchanged.</p><Field name="New date" type="date" value={rescheduleDate} set={(date) => void loadRescheduleSlots(date, rescheduling)} /><label className={label}>Available time<select className={input} value={rescheduleTime} onChange={(event) => setRescheduleTime(event.target.value)}><option value="">Choose a time</option>{rescheduleSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><div className="mt-5 flex gap-3"><button onClick={reschedule} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Save new time</button><button onClick={() => setRescheduling(null)} className="text-sm font-bold">Cancel</button></div></div></section>}</section>
+}
+
+function SettingsForm({ settings, setSettings, onSave }: { settings: { name: string; slug: string; whatsapp: string; hours: Hours[]; breaks: Break[]; blockedDates: string[] }; setSettings: (settings: any) => void; onSave: () => void }) {
+  return <form onSubmit={(event) => { event.preventDefault(); onSave() }} className="rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">Booking page & availability</h2><Field name="Business name" value={settings.name} set={(name) => setSettings({ ...settings, name })} /><Field name="Booking URL slug" value={settings.slug} set={(slug) => setSettings({ ...settings, slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /><Field name="WhatsApp number (optional)" value={settings.whatsapp} set={(whatsapp) => setSettings({ ...settings, whatsapp })} /><p className="mt-5 text-sm font-bold">Working hours (Africa/Lagos)</p>{settings.hours.map((hour, index) => <div className="mt-2 grid grid-cols-[70px_1fr_1fr_auto] gap-2" key={`${hour.weekday}-${index}`}><select className={input} value={hour.weekday} onChange={(event) => { const hours = [...settings.hours]; hours[index] = { ...hour, weekday: Number(event.target.value) }; setSettings({ ...settings, hours }) }}>{days.map((day, weekday) => <option value={weekday} key={day}>{day}</option>)}</select><input className={input} type="time" value={hour.opensAt} onChange={(event) => { const hours = [...settings.hours]; hours[index] = { ...hour, opensAt: event.target.value }; setSettings({ ...settings, hours }) }} /><input className={input} type="time" value={hour.closesAt} onChange={(event) => { const hours = [...settings.hours]; hours[index] = { ...hour, closesAt: event.target.value }; setSettings({ ...settings, hours }) }} /><button type="button" onClick={() => setSettings({ ...settings, hours: settings.hours.filter((_, itemIndex) => itemIndex !== index) })} className="text-rose-600">×</button></div>)}<button type="button" onClick={() => setSettings({ ...settings, hours: [...settings.hours, { weekday: 2, opensAt: '09:00', closesAt: '17:00' }] })} className="mt-3 text-sm font-bold text-emerald-700">+ Working day</button><p className="mt-5 text-sm font-bold">Regular breaks</p>{settings.breaks.map((item, index) => <div className="mt-2 grid grid-cols-[70px_1fr_1fr_auto] gap-2" key={`${item.weekday}-${index}`}><select className={input} value={item.weekday} onChange={(event) => { const breaks = [...settings.breaks]; breaks[index] = { ...item, weekday: Number(event.target.value) }; setSettings({ ...settings, breaks }) }}>{days.map((day, weekday) => <option value={weekday} key={day}>{day}</option>)}</select><input className={input} type="time" value={item.startsAt} onChange={(event) => { const breaks = [...settings.breaks]; breaks[index] = { ...item, startsAt: event.target.value }; setSettings({ ...settings, breaks }) }} /><input className={input} type="time" value={item.endsAt} onChange={(event) => { const breaks = [...settings.breaks]; breaks[index] = { ...item, endsAt: event.target.value }; setSettings({ ...settings, breaks }) }} /><button type="button" onClick={() => setSettings({ ...settings, breaks: settings.breaks.filter((_, itemIndex) => itemIndex !== index) })} className="text-rose-600">×</button></div>)}<button type="button" onClick={() => setSettings({ ...settings, breaks: [...settings.breaks, { weekday: settings.hours[0]?.weekday ?? 1, startsAt: '12:00', endsAt: '13:00' }] })} className="mt-3 text-sm font-bold text-emerald-700">+ Regular break</button><Field name="Blocked dates (YYYY-MM-DD, comma separated)" value={settings.blockedDates.join(', ')} set={(value) => setSettings({ ...settings, blockedDates: value.split(',').map((item) => item.trim()).filter(Boolean) })} /><button className="mt-5 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Save settings</button></form>
+}
+
+function Notice({ text }: { text: string }) { return <div className="mt-5 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900">{text}</div> }
+
+export function PublicBooking({ slug }: { slug: string }) {
+  const [business, setBusiness] = useState<Business | null>(null); const [services, setServices] = useState<Service[]>([]); const [form, setForm] = useState({ serviceId: '', date: '', time: '', name: '', phone: '', email: '' }); const [slots, setSlots] = useState<string[]>([]); const [notice, setNotice] = useState('')
+  useEffect(() => { void Promise.all([api(`/api/public/book/${slug}`), api(`/api/public/book/${slug}/services`)]).then(([loadedBusiness, loadedServices]) => { setBusiness(loadedBusiness); setServices(loadedServices); setForm((value) => ({ ...value, serviceId: loadedServices[0]?.id ?? '' })) }).catch((error) => setNotice(error.message)) }, [slug])
+  useEffect(() => { if (!form.serviceId || !form.date) return void setSlots([]); void api(`/api/public/book/${slug}/availability?serviceId=${encodeURIComponent(form.serviceId)}&date=${form.date}`).then((result) => setSlots(result.slots)).catch((error) => setNotice(error.message)) }, [slug, form.serviceId, form.date])
+  async function submit(event: FormEvent) { event.preventDefault(); try { const start = new Date(`${form.date}T${form.time}:00+01:00`).toISOString(); const result = await api(`/api/public/book/${slug}/requests`, { method: 'POST', body: JSON.stringify({ ...form, start }) }); setNotice(`Request received with reference ${result.reference}. The provider must confirm it.`) } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not submit request.') } }
+  return <section className="mx-auto max-w-xl px-5 py-10"><a href="/tools/booking" className="text-sm font-bold text-emerald-700">← Paperlink Booking</a><h1 className="mt-4 text-3xl font-black">{business?.name ?? 'Booking page'}</h1><p className="mt-1 text-slate-600">Choose a service and send a booking request. This local development page is only available on this Mac.</p>{notice && <Notice text={notice} />}<form onSubmit={submit} className="mt-6 rounded-2xl border bg-white p-5"><label className={label}>Service<select className={input} value={form.serviceId} onChange={(event) => setForm({ ...form, serviceId: event.target.value, time: '' })}>{services.map((service) => <option value={service.id} key={service.id}>{service.name} — ₦{service.price_ngn.toLocaleString()} ({service.duration_minutes} min)</option>)}</select></label><Field name="Date" type="date" value={form.date} set={(date) => setForm({ ...form, date, time: '' })} /><label className={label}>Available time<select className={input} value={form.time} onChange={(event) => setForm({ ...form, time: event.target.value })}><option value="">Choose a time</option>{slots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><Field name="Your name" value={form.name} set={(name) => setForm({ ...form, name })} /><Field name="Phone" value={form.phone} set={(phone) => setForm({ ...form, phone })} /><Field name="Email (optional)" type="email" value={form.email} set={(email) => setForm({ ...form, email })} /><button className="mt-5 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-bold text-white">Send booking request</button></form></section>
+}

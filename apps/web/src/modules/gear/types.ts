@@ -1,0 +1,10 @@
+export type Condition = 'Good' | 'Needs Repair' | 'Damaged'
+export type Ownership = 'Owned' | 'Borrowed' | 'Rented'
+export type RentalStatus = 'Enquiry' | 'Confirmed' | 'Checked Out' | 'Returned' | 'Cancelled'
+export type Gear = { id: string; name: string; category: string; brand: string; model: string; quantity: number; serials: string[]; location: string; condition: Condition; ownership: Ownership; available: boolean; photoId?: string; notes: string; archived?: boolean }
+export type ChecklistItem = { id: string; gearId?: string; name: string; required: number; packed: number; missing: number; returned: number; damaged: boolean; notes: string }
+export type Checklist = { id: string; name: string; date: string; location: string; client: string; notes: string; items: ChecklistItem[]; template?: boolean }
+export type Listing = { id: string; gearId: string; name: string; category: string; description: string; dailyRate: number; weeklyRate?: number; deposit?: number; pickup: string; terms: string; visible: boolean }
+export type Booking = { id: string; listingId: string; customer: string; contact: string; quantity: number; start: string; end: string; status: RentalStatus; checkoutCondition?: string; returnCondition?: string; notes: string }
+export type GearSettings = { owner: string; logoId?: string; whatsapp: string; pickup: string; terms: string }
+export type GearData = { version: 1; gear: Gear[]; checklists: Checklist[]; listings: Listing[]; bookings: Booking[]; settings: GearSettings }

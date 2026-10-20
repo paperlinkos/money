@@ -1,0 +1,8 @@
+import type { Booking, Checklist, Gear, Listing } from './types'
+export const id = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+export const today = () => new Date().toISOString().slice(0, 10)
+export const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
+export function checklistProgress(list: Checklist) { const total = list.items.reduce((s, i) => s + i.required, 0); const packed = list.items.reduce((s, i) => s + i.packed, 0); return { total, packed, missing: Math.max(0, total - packed) } }
+export function quoteCost(listing: Listing, quantity: number, start: string, end: string) { const days = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1); const weekly = listing.weeklyRate && days >= 7 ? Math.floor(days / 7) * listing.weeklyRate + (days % 7) * listing.dailyRate : days * listing.dailyRate; return { days, total: weekly * quantity } }
+export function overlaps(start: string, end: string, otherStart: string, otherEnd: string) { return start <= otherEnd && otherStart <= end }
+export function availableForRental(gear: Gear, listing: Listing, bookings: Booking[], checklists: Checklist[], start: string, end: string) { const rented = bookings.filter((b) => b.listingId === listing.id && ['Confirmed', 'Checked Out'].includes(b.status) && overlaps(start, end, b.start, b.end)).reduce((s, b) => s + b.quantity, 0); const reserved = checklists.filter((c) => c.date >= start && c.date <= end).reduce((s, c) => s + (c.items.find((i) => i.gearId === gear.id)?.required ?? 0), 0); return Math.max(0, (gear.available && gear.condition === 'Good' ? gear.quantity : 0) - rented - reserved) }

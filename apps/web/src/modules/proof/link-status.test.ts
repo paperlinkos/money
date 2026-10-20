@@ -1,0 +1,2 @@
+import{describe,it,expect}from'vitest';import{reviewLinkState}from'./link-status'
+describe('ProofFlow review links',()=>{const now=new Date('2026-10-20T12:00:00Z');it('identifies active links',()=>expect(reviewLinkState({expires_at:null,revoked_at:null},now)).toBe('Active'));it('identifies expired links',()=>expect(reviewLinkState({expires_at:'2026-10-20T11:59:00Z',revoked_at:null},now)).toBe('Expired'));it('prioritises revocation over expiry',()=>expect(reviewLinkState({expires_at:null,revoked_at:'2026-10-20T11:00:00Z'},now)).toBe('Revoked'))})

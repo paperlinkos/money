@@ -1,0 +1,6 @@
+import { describe, expect, it } from 'vitest'
+import { availableForRental, checklistProgress, quoteCost } from './utils'
+import type { Gear, Listing } from './types'
+const gear: Gear = { id: 'g', name: 'Camera', category: 'Cameras', brand: '', model: '', quantity: 3, serials: [], location: '', condition: 'Good', ownership: 'Owned', available: true, notes: '' }
+const listing: Listing = { id: 'l', gearId: 'g', name: 'Camera', category: 'Cameras', description: '', dailyRate: 1000, pickup: '', terms: '', visible: true }
+describe('GearList calculations', () => { it('tracks checklist packing progress', () => expect(checklistProgress({ id: '', name: '', date: '', location: '', client: '', notes: '', items: [{ id: '', name: '', required: 3, packed: 2, missing: 0, returned: 0, damaged: false, notes: '' }] })).toEqual({ total: 3, packed: 2, missing: 1 })); it('calculates rental days and total', () => expect(quoteCost(listing, 2, '2026-01-01', '2026-01-03')).toEqual({ days: 3, total: 6000 })); it('prevents conflicting reservations', () => expect(availableForRental(gear, listing, [{ id: '', listingId: 'l', customer: '', contact: '', quantity: 2, start: '2026-01-01', end: '2026-01-03', status: 'Confirmed', notes: '' }], [], '2026-01-02', '2026-01-02')).toBe(1)) })
