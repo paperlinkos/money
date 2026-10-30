@@ -7,6 +7,16 @@ export function PricingPage() {
   const [error, setError] = useState('')
 
   useEffect(() => { void loadBilling().then(setBilling).catch(() => setBilling(null)) }, [])
+  // The browser's Back button can restore this page exactly as it was left, mid-checkout.
+  useEffect(() => {
+    const restored = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      setBusy(null)
+      void loadBilling().then(setBilling).catch(() => setBilling(null))
+    }
+    window.addEventListener('pageshow', restored)
+    return () => window.removeEventListener('pageshow', restored)
+  }, [])
 
   async function buy(product: Product) {
     setBusy(product); setError('')
@@ -32,14 +42,14 @@ export function PricingPage() {
           <ul className="mt-7 flex-1 space-y-3 text-sm">{plan.features.map((feature) => <li key={feature} className="flex gap-3"><span className={featured ? 'text-emerald-400' : 'text-emerald-600'}>✓</span>{feature}</li>)}</ul>
           {plan.id === 'free'
             ? <a href={billing ? '/account' : '/account?mode=signup'} className="mt-8 rounded-full border border-slate-300 px-5 py-3 text-center font-bold hover:border-slate-950">{billing ? 'Go to dashboard' : 'Start free'}</a>
-            : <button type="button" disabled={isCurrent || busy !== null} onClick={() => void buy(plan.id)} className={`mt-8 rounded-full px-5 py-3 font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${featured ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-slate-950 text-white hover:bg-emerald-700'}`}>{isCurrent ? 'Current plan' : busy === plan.id ? 'Opening Paystack…' : `Get ${plan.name}`}</button>}
+            : <button type="button" disabled={isCurrent || busy !== null} onClick={() => void buy(plan.id)} className={`mt-8 rounded-full px-5 py-3 font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${featured ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-slate-950 text-white hover:bg-emerald-700'}`}>{isCurrent ? 'Current plan' : busy === plan.id ? 'One moment…' : `Get ${plan.name}`}</button>}
         </article>
       })}
     </div>
 
     <div className="mt-6 flex flex-col gap-4 rounded-3xl border border-dashed border-slate-300 bg-white p-7 md:flex-row md:items-center md:justify-between">
       <div><p className="text-sm font-bold text-emerald-700">One-time</p><h2 className="mt-1 text-xl font-black">Gallery pass · {galleryPass.price}</h2><p className="mt-1 text-slate-600">{galleryPass.copy}</p></div>
-      <button type="button" disabled={busy !== null} onClick={() => void buy('gallery_pass')} className="w-fit rounded-full border border-slate-950 px-5 py-3 font-bold hover:bg-slate-950 hover:text-white disabled:opacity-60">{busy === 'gallery_pass' ? 'Opening Paystack…' : 'Buy a gallery pass'}</button>
+      <button type="button" disabled={busy !== null} onClick={() => void buy('gallery_pass')} className="w-fit rounded-full border border-slate-950 px-5 py-3 font-bold hover:bg-slate-950 hover:text-white disabled:opacity-60">{busy === 'gallery_pass' ? 'One moment…' : 'Buy a gallery pass'}</button>
     </div>
 
     <div className="mt-12 grid gap-6 md:grid-cols-2">
