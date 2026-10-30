@@ -13,7 +13,7 @@ const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 async function api(path: string, options?: RequestInit) {
   const response = await fetch(path, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) }, ...options })
   const body = response.status === 204 ? null : await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body?.error ?? 'Something went wrong.')
+  if (!response.ok) throw Object.assign(new Error(body?.error ?? 'Something went wrong.'), { status: response.status })
   return body
 }
 
@@ -23,6 +23,8 @@ function Field({ name, value, set, type = 'text' }: { name: string; value: strin
 
 export function ProviderBooking({ initialMode = 'signin', initialTab = 'overview' }: { initialMode?: 'signin' | 'signup'; initialTab?: 'overview' | 'appointments' | 'setup' | 'profile' }) {
   const [business, setBusiness] = useState<Business | null>(null)
+  const [checking, setChecking] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode)
   const [notice, setNotice] = useState('')
   const [services, setServices] = useState<Service[]>([])
@@ -38,13 +40,18 @@ export function ProviderBooking({ initialMode = 'signin', initialTab = 'overview
 
   async function load() {
     try {
+      setLoadFailed(false)
       const me = await api('/api/auth/me')
       const [serviceRows, appointmentRows, saved] = await Promise.all([api('/api/booking/services'), api('/api/booking/appointments'), api('/api/booking/settings')])
       setBusiness(me.business)
       setServices(serviceRows)
       setAppointments(appointmentRows)
       setSettings({ name: saved.business.name, slug: saved.business.slug, whatsapp: saved.business.whatsapp ?? '', hours: saved.hours.map((item: any) => ({ weekday: item.weekday, opensAt: item.opens_at.slice(0, 5), closesAt: item.closes_at.slice(0, 5) })), breaks: saved.breaks.map((item: any) => ({ weekday: item.weekday, startsAt: item.starts_at.slice(0, 5), endsAt: item.ends_at.slice(0, 5) })), blockedDates: saved.blockedDates })
-    } catch { setBusiness(null) }
+    } catch (error) {
+      setBusiness(null)
+      // Only a 401 means signed out. Any other failure must not show a signed-in person the sign-in form.
+      setLoadFailed((error as { status?: number }).status !== 401)
+    } finally { setChecking(false) }
   }
   useEffect(() => { void load() }, [])
 
@@ -57,7 +64,7 @@ export function ProviderBooking({ initialMode = 'signin', initialTab = 'overview
       window.dispatchEvent(new Event('paperlinkos:authchange'))
       const next = new URLSearchParams(window.location.search).get('next') ?? (window.location.pathname === '/account' ? '/account' : null)
       if (next?.startsWith('/') && !next.startsWith('//')) return window.location.assign(next)
-      setNotice('Signed in. Your Booking workspace is account-backed.')
+      setNotice('Signed in.')
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not sign in.') }
   }
 
@@ -110,9 +117,12 @@ export function ProviderBooking({ initialMode = 'signin', initialTab = 'overview
     initialTab={initialTab}
   />
 
-  if (!business) return <section className="mx-auto max-w-md px-5 py-10"><a href="/tools" className="text-sm font-bold text-emerald-700">← All tools</a><h1 className="mt-4 text-3xl font-black">{mode === 'signup' ? 'Create your account' : 'Sign in to PaperlinkOS'}</h1><p className="mt-2 text-slate-600">Your account gives you access to account-backed Booking and ProofFlow workspaces. Browser-local tools remain available without one.</p>{notice && <Notice text={notice} />}<form onSubmit={authenticate} className="mt-6 rounded-2xl border bg-white p-5"><Field name="Email" type="email" value={authForm.email} set={(email) => setAuthForm({ ...authForm, email })} /><Field name="Password" type="password" value={authForm.password} set={(password) => setAuthForm({ ...authForm, password })} />{mode === 'signup' && <><Field name="Business name" value={authForm.name} set={(name) => setAuthForm({ ...authForm, name })} /><Field name="Booking page slug" value={authForm.slug} set={(slug) => setAuthForm({ ...authForm, slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /><p className="mt-3 text-xs leading-5 text-slate-500">This creates your Booking business page too. We will separate optional business setup from account creation in a later account milestone.</p></>}<button className="mt-5 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-bold text-white">{mode === 'signup' ? 'Create account' : 'Sign in'}</button><button type="button" onClick={() => setMode(mode === 'signup' ? 'signin' : 'signup')} className="ml-3 text-sm font-bold text-emerald-700">{mode === 'signup' ? 'I already have an account' : 'Create an account'}</button></form></section>
+  if (checking) return <section className="mx-auto max-w-6xl px-5 py-10 sm:px-8"><p className="text-sm text-slate-600">Loading your account…</p></section>
+  if (loadFailed) return <section className="mx-auto max-w-md px-5 py-10"><h1 className="text-2xl font-black">We could not load your account</h1><p className="mt-2 text-slate-600">Check your connection and try again.</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Try again</button></section>
 
-  return <section className="mx-auto max-w-6xl px-5 py-8 sm:px-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><a href="/tools/booking" className="text-sm font-bold text-emerald-700">← Local Booking Manager</a><h1 className="mt-2 text-3xl font-black">{business.name} Booking</h1><p className="mt-1 text-slate-600">Account-backed provider workspace. Local prototype records remain separate.</p></div><div className="flex gap-3"><a className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold" href={`/book/${business.slug}`} target="_blank" rel="noreferrer">Open booking page</a><button onClick={async () => { await api('/api/auth/logout', { method: 'POST' }); setBusiness(null); window.dispatchEvent(new Event('paperlinkos:authchange')) }} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white">Sign out</button></div></div>{notice && <Notice text={notice} />}<div className="mt-7 grid gap-6 lg:grid-cols-2"><form onSubmit={saveService} className="rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">{editingService ? 'Edit service' : 'Services'}</h2><Field name="Service name" value={serviceForm.name} set={(name) => setServiceForm({ ...serviceForm, name })} /><Field name="Description" value={serviceForm.description} set={(description) => setServiceForm({ ...serviceForm, description })} /><div className="grid grid-cols-3 gap-3"><Field name="NGN" type="number" value={serviceForm.price} set={(price) => setServiceForm({ ...serviceForm, price })} /><Field name="Minutes" type="number" value={serviceForm.duration} set={(duration) => setServiceForm({ ...serviceForm, duration })} /><Field name="Buffer" type="number" value={serviceForm.buffer} set={(buffer) => setServiceForm({ ...serviceForm, buffer })} /></div><button className="mt-5 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">{editingService ? 'Save service' : 'Add service'}</button>{editingService && <button type="button" onClick={() => { setEditingService(null); setServiceForm({ name: '', description: '', price: '', duration: '60', buffer: '0' }) }} className="ml-3 text-sm font-bold">Cancel</button>}<div className="mt-5 space-y-2">{services.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm"><span><b>{item.name}</b> · ₦{item.price_ngn.toLocaleString()} · {item.duration_minutes} min · {item.active ? 'Active' : 'Inactive'}</span><span className="flex gap-3"><button type="button" onClick={() => { setEditingService(item); setServiceForm({ name: item.name, description: item.description, price: String(item.price_ngn), duration: String(item.duration_minutes), buffer: String(item.buffer_minutes) }) }} className="font-bold text-emerald-700">Edit</button><button type="button" onClick={async () => { await api(`/api/booking/services/${item.id}`, { method: 'PATCH', body: JSON.stringify({ name: item.name, description: item.description, priceNgn: item.price_ngn, durationMinutes: item.duration_minutes, bufferMinutes: item.buffer_minutes, active: !item.active }) }); await load() }} className="font-bold text-amber-700">{item.active ? 'Deactivate' : 'Activate'}</button></span></div>)}</div></form><SettingsForm settings={settings} setSettings={setSettings} onSave={async () => { try { await api('/api/booking/settings', { method: 'PUT', body: JSON.stringify(settings) }); await load(); setNotice('Availability settings saved.') } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not save settings.') } }} /></div><section className="mt-6 rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">Booking requests & appointments</h2><div className="mt-4 space-y-2">{appointments.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm"><span><b>{item.customer_name}</b> · {item.service_name} · {new Date(item.starts_at).toLocaleString()} · {item.status}</span><span className="flex gap-2">{item.status === 'Pending' && <button onClick={async () => { await api(`/api/booking/appointments/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Confirmed' }) }); await load() }} className="font-bold text-emerald-700">Confirm</button>}{['Pending', 'Confirmed'].includes(item.status) && <button onClick={() => { setRescheduling(item); void loadRescheduleSlots(item.starts_at.slice(0, 10), item) }} className="font-bold text-emerald-700">Reschedule</button>}<button onClick={async () => { await api(`/api/booking/appointments/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Cancelled' }) }); await load() }} className="font-bold text-rose-600">Cancel</button></span></div>)}</div></section>{rescheduling && <section className="fixed inset-0 z-20 grid place-items-center bg-slate-950/30 p-5"><div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"><h2 className="text-xl font-black">Reschedule {rescheduling.customer_name}</h2><p className="mt-1 text-sm text-slate-600">Reference {rescheduling.reference}; customer details and reference stay unchanged.</p><Field name="New date" type="date" value={rescheduleDate} set={(date) => void loadRescheduleSlots(date, rescheduling)} /><label className={label}>Available time<select className={input} value={rescheduleTime} onChange={(event) => setRescheduleTime(event.target.value)}><option value="">Choose a time</option>{rescheduleSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><div className="mt-5 flex gap-3"><button onClick={reschedule} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Save new time</button><button onClick={() => setRescheduling(null)} className="text-sm font-bold">Cancel</button></div></div></section>}</section>
+  if (!business) return <section className="mx-auto max-w-md px-5 py-10"><a href="/tools" className="text-sm font-bold text-emerald-700">← All tools</a><h1 className="mt-4 text-3xl font-black">{mode === 'signup' ? 'Create your account' : 'Sign in to PaperlinkOS'}</h1><p className="mt-2 text-slate-600">Your account keeps your booking link and client galleries in one place. Our free tools also work without one.</p>{notice && <Notice text={notice} />}<form onSubmit={authenticate} className="mt-6 rounded-2xl border bg-white p-5"><Field name="Email" type="email" value={authForm.email} set={(email) => setAuthForm({ ...authForm, email })} /><Field name="Password" type="password" value={authForm.password} set={(password) => setAuthForm({ ...authForm, password })} />{mode === 'signup' && <><Field name="Business name" value={authForm.name} set={(name) => setAuthForm({ ...authForm, name })} /><Field name="Booking page slug" value={authForm.slug} set={(slug) => setAuthForm({ ...authForm, slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /><p className="mt-3 text-xs leading-5 text-slate-500">This creates your Booking business page too. We will separate optional business setup from account creation in a later account milestone.</p></>}<button className="mt-5 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-bold text-white">{mode === 'signup' ? 'Create account' : 'Sign in'}</button><button type="button" onClick={() => setMode(mode === 'signup' ? 'signin' : 'signup')} className="ml-3 text-sm font-bold text-emerald-700">{mode === 'signup' ? 'I already have an account' : 'Create an account'}</button></form></section>
+
+  return <section className="mx-auto max-w-6xl px-5 py-8 sm:px-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><a href="/account" className="text-sm font-bold text-emerald-700">← Dashboard</a><h1 className="mt-2 text-3xl font-black">{business.name} Booking</h1><p className="mt-1 text-slate-600">Manage your services, availability and client requests.</p></div><div className="flex gap-3"><a className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold" href={`/book/${business.slug}`} target="_blank" rel="noreferrer">Open booking page</a><button onClick={async () => { await api('/api/auth/logout', { method: 'POST' }); setBusiness(null); window.dispatchEvent(new Event('paperlinkos:authchange')) }} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white">Sign out</button></div></div>{notice && <Notice text={notice} />}<div className="mt-7 grid gap-6 lg:grid-cols-2"><form onSubmit={saveService} className="rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">{editingService ? 'Edit service' : 'Services'}</h2><Field name="Service name" value={serviceForm.name} set={(name) => setServiceForm({ ...serviceForm, name })} /><Field name="Description" value={serviceForm.description} set={(description) => setServiceForm({ ...serviceForm, description })} /><div className="grid grid-cols-3 gap-3"><Field name="NGN" type="number" value={serviceForm.price} set={(price) => setServiceForm({ ...serviceForm, price })} /><Field name="Minutes" type="number" value={serviceForm.duration} set={(duration) => setServiceForm({ ...serviceForm, duration })} /><Field name="Buffer" type="number" value={serviceForm.buffer} set={(buffer) => setServiceForm({ ...serviceForm, buffer })} /></div><button className="mt-5 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">{editingService ? 'Save service' : 'Add service'}</button>{editingService && <button type="button" onClick={() => { setEditingService(null); setServiceForm({ name: '', description: '', price: '', duration: '60', buffer: '0' }) }} className="ml-3 text-sm font-bold">Cancel</button>}<div className="mt-5 space-y-2">{services.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm"><span><b>{item.name}</b> · ₦{item.price_ngn.toLocaleString()} · {item.duration_minutes} min · {item.active ? 'Active' : 'Inactive'}</span><span className="flex gap-3"><button type="button" onClick={() => { setEditingService(item); setServiceForm({ name: item.name, description: item.description, price: String(item.price_ngn), duration: String(item.duration_minutes), buffer: String(item.buffer_minutes) }) }} className="font-bold text-emerald-700">Edit</button><button type="button" onClick={async () => { await api(`/api/booking/services/${item.id}`, { method: 'PATCH', body: JSON.stringify({ name: item.name, description: item.description, priceNgn: item.price_ngn, durationMinutes: item.duration_minutes, bufferMinutes: item.buffer_minutes, active: !item.active }) }); await load() }} className="font-bold text-amber-700">{item.active ? 'Deactivate' : 'Activate'}</button></span></div>)}</div></form><SettingsForm settings={settings} setSettings={setSettings} onSave={async () => { try { await api('/api/booking/settings', { method: 'PUT', body: JSON.stringify(settings) }); await load(); setNotice('Availability settings saved.') } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not save settings.') } }} /></div><section className="mt-6 rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">Booking requests & appointments</h2><div className="mt-4 space-y-2">{appointments.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm"><span><b>{item.customer_name}</b> · {item.service_name} · {new Date(item.starts_at).toLocaleString()} · {item.status}</span><span className="flex gap-2">{item.status === 'Pending' && <button onClick={async () => { await api(`/api/booking/appointments/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Confirmed' }) }); await load() }} className="font-bold text-emerald-700">Confirm</button>}{['Pending', 'Confirmed'].includes(item.status) && <button onClick={() => { setRescheduling(item); void loadRescheduleSlots(item.starts_at.slice(0, 10), item) }} className="font-bold text-emerald-700">Reschedule</button>}<button onClick={async () => { await api(`/api/booking/appointments/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Cancelled' }) }); await load() }} className="font-bold text-rose-600">Cancel</button></span></div>)}</div></section>{rescheduling && <section className="fixed inset-0 z-20 grid place-items-center bg-slate-950/30 p-5"><div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"><h2 className="text-xl font-black">Reschedule {rescheduling.customer_name}</h2><p className="mt-1 text-sm text-slate-600">Reference {rescheduling.reference}; customer details and reference stay unchanged.</p><Field name="New date" type="date" value={rescheduleDate} set={(date) => void loadRescheduleSlots(date, rescheduling)} /><label className={label}>Available time<select className={input} value={rescheduleTime} onChange={(event) => setRescheduleTime(event.target.value)}><option value="">Choose a time</option>{rescheduleSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></label><div className="mt-5 flex gap-3"><button onClick={reschedule} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Save new time</button><button onClick={() => setRescheduling(null)} className="text-sm font-bold">Cancel</button></div></div></section>}</section>
 }
 
 type BookingSettings = {
@@ -239,9 +249,9 @@ function ProviderWorkspace({
     <section className="mx-auto max-w-6xl px-5 py-8 sm:px-8">
       <div>
         <div>
-          <a href="/tools/booking" className="text-sm font-bold text-emerald-700">← Local Booking Manager</a>
+          <a href="/account" className="text-sm font-bold text-emerald-700">← Dashboard</a>
           <h1 className="mt-2 text-3xl font-black">{business.name} Booking</h1>
-          <p className="mt-1 text-slate-600">Manage your account-backed services, availability, requests and notification records.</p>
+          <p className="mt-1 text-slate-600">Manage your services, availability and client requests.</p>
         </div>
       </div>
 
@@ -414,6 +424,7 @@ export function PublicBooking({ slug }: { slug: string }) {
   const [notice, setNotice] = useState('')
   const [availabilityNotice, setAvailabilityNotice] = useState('')
   const [loadingSlots, setLoadingSlots] = useState(false)
+  const [pageStatus, setPageStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading')
 
   useEffect(() => {
     void Promise.all([api(`/api/public/book/${slug}`), api(`/api/public/book/${slug}/services`)])
@@ -421,8 +432,9 @@ export function PublicBooking({ slug }: { slug: string }) {
         setBusiness(loadedBusiness)
         setServices(loadedServices)
         setForm((value) => ({ ...value, serviceId: loadedServices[0]?.id ?? '' }))
+        setPageStatus('ready')
       })
-      .catch((error) => setNotice(error.message))
+      .catch((error) => { setNotice(error.message); setPageStatus('unavailable') })
   }, [slug])
 
   useEffect(() => {
@@ -462,10 +474,12 @@ export function PublicBooking({ slug }: { slug: string }) {
     }
   }
 
+  if (pageStatus === 'loading') return <section className="mx-auto max-w-xl px-5 py-10"><p className="text-sm text-slate-600">Loading booking page…</p></section>
+  if (pageStatus === 'unavailable') return <section className="mx-auto max-w-xl px-5 py-10"><h1 className="text-3xl font-black">Booking page unavailable</h1><p className="mt-2 text-slate-600">{notice} Check the link with your provider, or try again.</p></section>
+
   return <section className="mx-auto max-w-xl px-5 py-10">
-    <a href="/tools/booking" className="text-sm font-bold text-emerald-700">← Paperlink Booking</a>
-    <h1 className="mt-4 text-3xl font-black">{business?.name ?? 'Booking page'}</h1>
-    <p className="mt-1 text-slate-600">Choose a service and send a booking request. This local development page is only available on this Mac.</p>
+    <h1 className="text-3xl font-black">{business?.name ?? 'Booking page'}</h1>
+    <p className="mt-1 text-slate-600">Choose a service and send a booking request.</p>
     {notice && <Notice text={notice} />}
     <form onSubmit={submit} className="mt-6 rounded-2xl border bg-white p-5">
       <label className={label}>Service

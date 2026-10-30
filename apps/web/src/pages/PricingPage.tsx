@@ -24,6 +24,8 @@ export function PricingPage() {
   }
 
   const current = billing?.plan
+  // Hidden until we know who is viewing, so nobody sees the wrong button for a moment.
+  const checking = billing === undefined
   return <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
     <div className="mx-auto max-w-2xl text-center">
       <p className="text-sm font-bold tracking-[0.16em] text-emerald-700 uppercase">Pricing</p>
@@ -36,13 +38,13 @@ export function PricingPage() {
         const featured = plan.id === 'pro'
         const isCurrent = current === plan.id
         return <article key={plan.id} className={`flex flex-col rounded-3xl border p-7 ${featured ? 'border-slate-950 bg-slate-950 text-white shadow-2xl shadow-slate-900/20' : 'border-slate-200 bg-white'}`}>
-          <div className="flex items-center justify-between"><h2 className="text-xl font-black">{plan.name}</h2>{isCurrent ? <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-800">Your plan</span> : featured && <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-xs font-black text-slate-950">Most popular</span>}</div>
+          <div className="flex items-center justify-between"><h2 className="text-xl font-black">{plan.name}</h2>{isCurrent ? <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-800">Your plan</span> : featured && !checking && <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-xs font-black text-slate-950">Most popular</span>}</div>
           <p className="mt-5"><span className="text-5xl font-black tracking-tight">{plan.price}</span> <span className={featured ? 'text-slate-400' : 'text-slate-500'}>{plan.period}</span></p>
           <p className={`mt-3 leading-7 ${featured ? 'text-slate-300' : 'text-slate-600'}`}>{plan.blurb}</p>
           <ul className="mt-7 flex-1 space-y-3 text-sm">{plan.features.map((feature) => <li key={feature} className="flex gap-3"><span className={featured ? 'text-emerald-400' : 'text-emerald-600'}>✓</span>{feature}</li>)}</ul>
           {plan.id === 'free'
-            ? <a href={billing ? '/account' : '/account?mode=signup'} className="mt-8 rounded-full border border-slate-300 px-5 py-3 text-center font-bold hover:border-slate-950">{billing ? 'Go to dashboard' : 'Start free'}</a>
-            : <button type="button" disabled={isCurrent || busy !== null} onClick={() => void buy(plan.id)} className={`mt-8 rounded-full px-5 py-3 font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${featured ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-slate-950 text-white hover:bg-emerald-700'}`}>{isCurrent ? 'Current plan' : busy === plan.id ? 'One moment…' : `Get ${plan.name}`}</button>}
+            ? <a href={billing ? '/account' : '/account?mode=signup'} className={`${checking ? 'invisible ' : ''}mt-8 rounded-full border border-slate-300 px-5 py-3 text-center font-bold hover:border-slate-950`}>{billing ? 'Go to dashboard' : 'Start free'}</a>
+            : <button type="button" disabled={checking || isCurrent || busy !== null} onClick={() => void buy(plan.id)} className={`${checking ? 'invisible ' : ''}mt-8 rounded-full px-5 py-3 font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${featured ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-slate-950 text-white hover:bg-emerald-700'}`}>{isCurrent ? 'Current plan' : busy === plan.id ? 'One moment…' : `Get ${plan.name}`}</button>}
         </article>
       })}
     </div>

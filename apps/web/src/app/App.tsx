@@ -23,7 +23,7 @@ export function App() {
   const page = reviewToken ? <PublicReviewPage token={reviewToken} /> : publicBookingSlug ? <PublicBooking slug={publicBookingSlug} />
     : path === '/book' || path === '/book/' ? <PublicBookingDirectory />
     : path === '/tools/booking/account' ? <ProviderBooking initialMode={query.get('mode') === 'signup' ? 'signup' : 'signin'} initialTab={bookingTab} />
-    : path === '/account' ? query.has('mode') ? <ProviderBooking initialMode={query.get('mode') === 'signup' ? 'signup' : 'signin'} /> : <AccountDashboard />
+    : path === '/account' ? <AccountDashboard initialMode={query.get('mode') === 'signup' ? 'signup' : 'signin'} />
     : path === '/profile' ? <AccountProfilePage />
     : path === '/billing/return' ? <BillingReturnPage />
     : path === '/tools/invoice' ? <InvoicePage />
@@ -86,4 +86,4 @@ export function App() {
   )
 }
 
-function PublicBookingDirectory() { return <section className="mx-auto max-w-xl px-5 py-10"><h1 className="text-3xl font-black">Open a booking page</h1><p className="mt-2 text-slate-600">Ask your provider for their Paperlink Booking link. In local development, booking pages are only available on this Mac.</p></section> }
+function PublicBookingDirectory() { return <section className="mx-auto max-w-xl px-5 py-10"><h1 className="text-3xl font-black">Open a booking page</h1><p className="mt-2 text-slate-600">Ask your provider for their PaperlinkOS booking link.</p></section> }

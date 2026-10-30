@@ -32,7 +32,8 @@ export function ProofPage() {
   const [selected, setSelected] = useState<Project | null>(null)
   const [note, setNote] = useState('')
   const [blocker, setBlocker] = useState<'signin' | 'upgrade' | null>(null)
-  const load = () => api('/api/proof/projects').then((rows) => { setProjects(rows); setBlocker(null) }).catch((error) => { setNote(error.message); if (error.status === 401) setBlocker('signin') })
+  const [loaded, setLoaded] = useState(false)
+  const load = () => api('/api/proof/projects').then((rows) => { setProjects(rows); setBlocker(null) }).catch((error) => { setNote(error.message); if (error.status === 401) setBlocker('signin') }).finally(() => setLoaded(true))
 
   useEffect(() => { load() }, [])
 
@@ -45,7 +46,8 @@ export function ProofPage() {
     {blocker === 'signin' ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><b>Sign in to use client galleries.</b> Galleries are saved to your account so clients can open them from any device.<div className="mt-3 flex gap-2"><a href="/account?mode=signup&next=/tools/proof" className="rounded-lg bg-slate-950 px-3 py-2 font-bold text-white">Create free account</a><a href="/account?next=/tools/proof" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold">Sign in</a></div></div>
       : note && <Notice text={note} />}
     {blocker === 'upgrade' && <a href="/pricing" className="mt-2 inline-flex rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">See plans</a>}
-    {blocker !== 'signin' && <NewProject done={load} fail={(message, upgrade) => { setNote(message); setBlocker(upgrade ? 'upgrade' : null) }} />}
+    {!loaded && <p className="mt-4 text-sm text-slate-600">Loading your galleries…</p>}
+    {loaded && blocker !== 'signin' && <NewProject done={load} fail={(message, upgrade) => { setNote(message); setBlocker(upgrade ? 'upgrade' : null) }} />}
     <div className="mt-6 space-y-3">
       {projects.map((project) => <button key={project.id} onClick={() => api(`/api/proof/projects/${project.id}`).then(setSelected).catch((error) => setNote(error.message))} className="block w-full rounded-xl border bg-white p-4 text-left">
         <b>{project.name}</b><span className="float-right text-sm">{project.status}</span><p className="text-sm text-slate-600">{project.client_name}</p>
