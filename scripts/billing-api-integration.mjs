@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { Client } from 'pg'
 
 const databaseUrl = process.env.DATABASE_URL
@@ -11,9 +12,17 @@ const base = `http://127.0.0.1:${port}`
 const origin = 'http://localhost:5173'
 const secret = 'sk_test_billing_integration'
 const plans = { PAYSTACK_PLAN_PRO: 'PLN_test_pro', PAYSTACK_PLAN_STUDIO: 'PLN_test_studio' }
+// Stands in for Paystack's verify endpoint, so no test ever reaches the real API.
+const verifyStatuses = new Map()
+const paystackPort = port + 1
+const fakePaystack = createServer((request, response) => {
+  const reference = decodeURIComponent(request.url.split('/').pop())
+  response.setHeader('Content-Type', 'application/json')
+  response.end(JSON.stringify({ status: true, data: { reference, status: verifyStatuses.get(reference), amount: 250000, currency: 'NGN' } }))
+}).listen(paystackPort, '127.0.0.1')
 const server = spawn('node', ['apps/api/dist/server.js'], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(port), WEB_ORIGIN: origin, PAYSTACK_SECRET_KEY: secret, ...plans },
+  env: { ...process.env, PORT: String(port), WEB_ORIGIN: origin, PAYSTACK_SECRET_KEY: secret, PAYSTACK_API_URL: `http://127.0.0.1:${paystackPort}`, ...plans },
   stdio: 'ignore',
 })
 const db = new Client({ connectionString: databaseUrl })
@@ -103,11 +112,34 @@ try {
   assert.equal(await webhook({ event: 'subscription.disable', data: { subscription_code: 'SUB_pro' } }), 200)
   assert.equal((await me(pro)).plan, 'free')
 
+  // subscription.create can arrive before the first charge; the customer still gets one month.
+  const early = await register('billing-early')
+  const nextPayment = new Date(Date.now() + 30 * 86_400_000).toISOString()
+  await db.query("insert into billing_payments(reference,user_id,kind,plan,amount_kobo) values('pl_early_1',$1,'subscription','pro',500000)", [early.userId])
+  assert.equal(await webhook({ event: 'subscription.create', data: { subscription_code: 'SUB_early', email_token: 'tok', next_payment_date: nextPayment, plan: { plan_code: plans.PAYSTACK_PLAN_PRO }, customer: { customer_code: 'CUS_early', email: early.email } } }), 200)
+  assert.equal(await webhook({ event: 'charge.success', data: { reference: 'pl_early_1', status: 'success', amount: 500000, currency: 'NGN', plan: { plan_code: plans.PAYSTACK_PLAN_PRO }, customer: { customer_code: 'CUS_early', email: early.email } } }), 200)
+  assert.ok(new Date((await me(early)).currentPeriodEnd).getTime() < Date.now() + 32 * 86_400_000)
+
+  // A failed payment is reported as failed, and still counts if the retry succeeds.
+  const declined = await register('billing-declined')
+  await db.query("insert into billing_payments(reference,user_id,kind,amount_kobo) values('pl_declined_1',$1,'gallery_pass',250000)", [declined.userId])
+  const verify = () => request('/api/billing/verify', { method: 'POST', body: JSON.stringify({ reference: 'pl_declined_1' }) }, declined)
+  verifyStatuses.set('pl_declined_1', 'abandoned')
+  assert.equal((await verify()).body.paymentStatus, 'pending')
+  verifyStatuses.set('pl_declined_1', 'failed')
+  assert.equal((await verify()).body.paymentStatus, 'failed')
+  verifyStatuses.set('pl_declined_1', 'success')
+  const retried = await verify()
+  assert.equal(retried.body.paymentStatus, 'success')
+  assert.equal(retried.body.paymentKind, 'gallery_pass')
+  assert.equal(retried.body.galleryAllowance, 2)
+
   // Another account cannot verify someone else's payment reference.
   assert.equal((await request('/api/billing/verify', { method: 'POST', body: JSON.stringify({ reference: 'pl_pro_1' }) }, creator)).response.status, 404)
   assert.equal((await request('/api/billing/me')).response.status, 401)
   console.log('Billing API integration passed')
 } finally {
   server.kill()
+  fakePaystack.close()
   await db.end()
 }

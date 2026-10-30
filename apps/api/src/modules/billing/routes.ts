@@ -33,7 +33,7 @@ const auth = (handler: (request: Request, response: Response, account: { id: str
 }
 
 async function paystack<T>(path: string, init?: { method?: string; body?: unknown }) {
-  const response = await fetch(`https://api.paystack.co${path}`, {
+  const response = await fetch(`${config.paystackApiUrl}${path}`, {
     method: init?.method ?? 'GET',
     headers: { Authorization: `Bearer ${config.paystackSecretKey}`, 'Content-Type': 'application/json' },
     body: init?.body ? JSON.stringify(init.body) : undefined,
@@ -48,11 +48,12 @@ async function tx<T>(work: (client: PoolClient) => Promise<T>) {
   try { await client.query('begin'); const result = await work(client); await client.query('commit'); return result } catch (error) { await client.query('rollback'); throw error } finally { client.release() }
 }
 
-// Moves a pending payment to success exactly once, then grants what was bought.
+// Moves an unpaid payment to success exactly once, then grants what was bought.
+// A failed payment can still succeed: the customer may retry on the same Paystack checkout.
 async function settle(charge: Charge) {
   if (charge.status !== 'success' || charge.currency !== 'NGN') return false
   return tx(async (client) => {
-    const payment = (await client.query("update billing_payments set status='success',paid_at=now() where reference=$1 and status='pending' and amount_kobo<=$2 returning *", [charge.reference, charge.amount])).rows[0]
+    const payment = (await client.query("update billing_payments set status='success',paid_at=now() where reference=$1 and status in ('pending','failed') and amount_kobo<=$2 returning *", [charge.reference, charge.amount])).rows[0]
     if (!payment) return false
     if (payment.kind === 'gallery_pass') {
       await client.query('insert into billing_credits(user_id,gallery_credits) values($1,1) on conflict (user_id) do update set gallery_credits=billing_credits.gallery_credits+1', [payment.user_id])
@@ -60,7 +61,7 @@ async function settle(charge: Charge) {
       await client.query(
         `insert into billing_subscriptions(user_id,plan,status,paystack_customer_code,current_period_end) values($1,$2,'active',$3,now()+interval '1 month')
          on conflict (user_id) do update set status='active', paystack_customer_code=coalesce(excluded.paystack_customer_code,billing_subscriptions.paystack_customer_code),
-           current_period_end=case when billing_subscriptions.plan=excluded.plan then greatest(billing_subscriptions.current_period_end,now())+interval '1 month' else now()+interval '1 month' end,
+           current_period_end=case when billing_subscriptions.plan=excluded.plan then greatest(billing_subscriptions.current_period_end,now()+interval '1 month') else now()+interval '1 month' end,
            plan=excluded.plan, updated_at=now()`,
         [payment.user_id, payment.plan, charge.customer?.customer_code ?? null],
       )
@@ -127,9 +128,13 @@ export function billingRoutes(app: Express) {
     const reference = String(request.body?.reference ?? '')
     const payment = (await requireDb().query('select status from billing_payments where reference=$1 and user_id=$2', [reference, account.id])).rows[0]
     if (!payment) return void response.status(404).json({ error: 'Payment not found.' })
-    if (payment.status === 'pending') await settle(await paystack<Charge>(`/transaction/verify/${encodeURIComponent(reference)}`))
-    const status = (await requireDb().query('select status from billing_payments where reference=$1', [reference])).rows[0].status
-    response.json({ ...await accountPlan(account.id), paymentStatus: status })
+    if (payment.status !== 'success') {
+      const charge = await paystack<Charge>(`/transaction/verify/${encodeURIComponent(reference)}`)
+      if (charge.status === 'failed') await requireDb().query("update billing_payments set status='failed' where reference=$1 and status='pending'", [reference])
+      else await settle(charge)
+    }
+    const { status, kind } = (await requireDb().query('select status,kind from billing_payments where reference=$1', [reference])).rows[0]
+    response.json({ ...await accountPlan(account.id), paymentStatus: status, paymentKind: kind })
   }))
 
   app.post('/api/billing/manage', auth(async (_request, response, account) => {

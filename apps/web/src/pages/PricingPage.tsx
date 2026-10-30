@@ -51,7 +51,7 @@ export function PricingPage() {
 
 export function BillingReturnPage() {
   const reference = new URLSearchParams(window.location.search).get('reference')
-  const [state, setState] = useState<{ status: 'checking' | 'success' | 'pending' | 'failed'; billing?: Billing }>({ status: reference ? 'checking' : 'failed' })
+  const [state, setState] = useState<{ status: 'checking' | 'success' | 'pending' | 'declined' | 'failed'; billing?: Billing & { paymentKind?: string } }>({ status: reference ? 'checking' : 'failed' })
 
   useEffect(() => {
     if (!reference) return
@@ -59,22 +59,23 @@ export function BillingReturnPage() {
       .then(async (response) => {
         const body = await response.json().catch(() => ({}))
         if (!response.ok) return setState({ status: 'failed' })
-        setState({ status: body.paymentStatus === 'success' ? 'success' : body.paymentStatus === 'failed' ? 'failed' : 'pending', billing: body })
+        setState({ status: body.paymentStatus === 'success' ? 'success' : body.paymentStatus === 'failed' ? 'declined' : 'pending', billing: body })
       })
       .catch(() => setState({ status: 'pending' }))
   }, [reference])
 
   const copy = {
     checking: ['Confirming your payment…', 'This takes a few seconds.'],
-    success: ['Payment received. Thank you!', state.billing?.plan && state.billing.plan !== 'free' ? `You are now on ${state.billing.plan === 'pro' ? 'Pro' : 'Studio'}. Your new limits are active.` : 'Your gallery pass has been added to your account.'],
+    success: ['Payment received. Thank you!', state.billing?.paymentKind === 'gallery_pass' ? 'Your gallery pass has been added to your account.' : `You are now on ${state.billing?.plan === 'studio' ? 'Studio' : 'Pro'}. Your new limits are active.`],
     pending: ['We are still confirming your payment', 'Paystack has not confirmed it yet. Refresh this page in a minute; you will not be charged twice.'],
+    declined: ['Your payment did not go through', 'You have not been charged and your plan has not changed. You can try again with another card, bank transfer or USSD.'],
     failed: ['We could not confirm this payment', 'If money left your account, contact us with your Paystack receipt and we will sort it out.'],
   }[state.status]
 
   return <section className="mx-auto max-w-lg px-5 py-24 text-center">
-    <div className={`mx-auto grid h-16 w-16 place-items-center rounded-full text-2xl font-black ${state.status === 'success' ? 'bg-emerald-100 text-emerald-700' : state.status === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>{state.status === 'success' ? '✓' : state.status === 'failed' ? '!' : '…'}</div>
+    <div className={`mx-auto grid h-16 w-16 place-items-center rounded-full text-2xl font-black ${state.status === 'success' ? 'bg-emerald-100 text-emerald-700' : state.status === 'failed' || state.status === 'declined' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>{state.status === 'success' ? '✓' : state.status === 'failed' || state.status === 'declined' ? '!' : '…'}</div>
     <h1 className="mt-6 text-3xl font-black tracking-tight">{copy[0]}</h1>
     <p className="mt-3 leading-7 text-slate-600">{copy[1]}</p>
-    <div className="mt-8 flex justify-center gap-3"><a href="/account" className="rounded-full bg-slate-950 px-5 py-3 font-bold text-white">Go to dashboard</a>{state.status === 'pending' && <button type="button" onClick={() => window.location.reload()} className="rounded-full border border-slate-300 px-5 py-3 font-bold">Check again</button>}</div>
+    <div className="mt-8 flex justify-center gap-3"><a href="/account" className="rounded-full bg-slate-950 px-5 py-3 font-bold text-white">Go to dashboard</a>{state.status === 'pending' && <button type="button" onClick={() => window.location.reload()} className="rounded-full border border-slate-300 px-5 py-3 font-bold">Check again</button>}{state.status === 'declined' && <a href="/pricing" className="rounded-full border border-slate-300 px-5 py-3 font-bold">Try again</a>}</div>
   </section>
 }
