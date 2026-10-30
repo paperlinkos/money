@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { rm } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
+import pg from 'pg'
+import sharp from 'sharp'
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error('DATABASE_URL is required for this integration test.')
@@ -116,6 +118,91 @@ try {
 
   const expired = await reviewLink(creator, ownedProject.id, '2000-01-01T00:00:00.000Z')
   assert.equal((await request(`/api/public/review/${expired}`)).response.status, 404, 'expired token blocked')
+
+  // Protected previews: a public link never gets the original until the creator releases it.
+  const studio = await register('ada-studio')
+  const gallery = await project(studio, 'Protected gallery')
+  assert.equal(gallery.protected_preview, true, 'new galleries start protected')
+  const db = new pg.Client({ connectionString: databaseUrl })
+  await db.connect()
+  const legacy = await db.query("insert into proof_projects(id,owner_id,name,client_name) values(gen_random_uuid(),$1,'Older gallery','Client') returning protected_preview", [gallery.owner_id])
+  await db.end()
+  assert.equal(legacy.rows[0].protected_preview, false, 'galleries from before this feature stay unprotected')
+
+  const original = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: '#336699' } }).withExif({ IFD0: { Copyright: 'SECRET-EXIF-MARKER' } }).jpeg({ quality: 95 }).toBuffer()
+  const sendFile = (path, name, bytes, mime = 'image/jpeg') => request(path, { method: 'POST', body: JSON.stringify({ name, data: `data:${mime};base64,${bytes.toString('base64')}` }) }, studio)
+  const bytesOf = (result) => Buffer.from(result.body)
+  const uploaded = await sendFile(`/api/proof/projects/${gallery.id}/files`, 'wedding.jpg', original)
+  assert.equal(uploaded.response.status, 201)
+  const pdfBytes = Buffer.from('%PDF-1.4\n%protected gallery test\n')
+  const pdfUpload = await sendFile(`/api/proof/projects/${gallery.id}/files`, 'brief.pdf', pdfBytes, 'application/pdf')
+  assert.equal(pdfUpload.response.status, 201)
+  const damaged = await sendFile(`/api/proof/projects/${gallery.id}/files`, 'damaged.png', Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('not really an image')]), 'image/png')
+  assert.equal(damaged.response.status, 422, 'an image that cannot be watermarked is refused')
+
+  const galleryToken = await reviewLink(studio, gallery.id)
+  const shared = `/api/public/review/${galleryToken}/files/${uploaded.body.id}`
+  const listing = await request(`/api/public/review/${galleryToken}`)
+  const listed = listing.body.deliverables.find((item) => item.version.id === uploaded.body.id).version
+  assert.deepEqual([listed.previewOnly, listed.originalAvailable], [true, false])
+  assert.ok(!JSON.stringify(listing.body).includes('storage_name'), 'public listing hides storage names')
+
+  const preview = await request(shared)
+  assert.equal(preview.response.status, 200)
+  assert.equal(preview.response.headers.get('content-type'), 'image/jpeg')
+  const previewBytes = bytesOf(preview)
+  assert.ok(!previewBytes.equals(original), 'public file is not the original')
+  const details = await sharp(previewBytes).metadata()
+  assert.equal(Math.max(details.width, details.height), 1600, 'preview is resized')
+  assert.equal(details.exif, undefined, 'preview has no EXIF')
+  assert.ok(!previewBytes.includes('SECRET-EXIF-MARKER'), 'preview has no creator metadata')
+  assert.ok((await sharp(previewBytes).stats()).channels[0].stdev > 5, 'a plain image gains a visible watermark')
+
+  const originalUrl = `${shared}/original`
+  assert.equal((await request(originalUrl)).response.status, 403, 'public link cannot fetch the original before release')
+  assert.equal((await request(`/api/proof/files/${uploaded.body.id}`)).response.status, 401, 'creator file route needs sign in')
+  assert.equal((await request(`/api/proof/files/${uploaded.body.id}`, {}, otherCreator)).response.status, 404, 'another creator cannot fetch the original')
+  assert.ok(bytesOf(await request(`/api/proof/files/${uploaded.body.id}`, {}, studio)).equals(original), 'creator always gets the original')
+  assert.ok(bytesOf(await request(`/api/proof/files/${uploaded.body.id}/preview`, {}, studio)).equals(previewBytes), 'creator can see the client preview')
+  assert.ok(bytesOf(await request(`/api/public/review/${galleryToken}/files/${pdfUpload.body.id}`)).equals(pdfBytes), 'PDFs are shared unchanged')
+
+  const watermarked = await request(`/api/proof/projects/${gallery.id}/protection`, { method: 'PATCH', body: JSON.stringify({ enabled: true, watermarkText: 'Ada <Proofs> & Co' }) }, studio)
+  assert.equal(watermarked.response.status, 204)
+  const rewatermarked = bytesOf(await request(shared))
+  assert.ok(!rewatermarked.equals(previewBytes), 'editing the watermark remakes the preview')
+  assert.ok(!rewatermarked.equals(original))
+
+  assert.equal((await request(`/api/proof/projects/${gallery.id}/release-originals`, { method: 'POST', body: JSON.stringify({ released: true }) }, otherCreator)).response.status, 404, 'only the owner can release')
+  assert.equal((await request(originalUrl)).response.status, 403)
+  assert.equal((await request(`/api/proof/projects/${gallery.id}/release-originals`, { method: 'POST', body: JSON.stringify({ released: true }) }, studio)).response.status, 200)
+  const released = await request(originalUrl)
+  assert.equal(released.response.status, 200, 'release opens the original')
+  assert.ok(bytesOf(released).equals(original))
+  assert.match(released.response.headers.get('content-disposition'), /attachment/)
+  assert.ok(!bytesOf(await request(shared)).equals(original), 'the page keeps showing the preview after release')
+  assert.equal((await request(`/api/public/review/${galleryToken}`)).body.deliverables.find((item) => item.version.id === uploaded.body.id).version.originalAvailable, true)
+
+  const secondVersion = await sendFile(`/api/proof/deliverables/${uploaded.body.deliverableId}/versions`, 'wedding-v2.jpg', original)
+  assert.equal(secondVersion.response.status, 201)
+  assert.equal(secondVersion.body.versionNumber, 2)
+  assert.equal((await request(originalUrl)).response.status, 404, 'superseded versions stay private')
+  assert.equal((await request(`/api/public/review/${galleryToken}/files/${secondVersion.body.id}/original`)).response.status, 403, 'images uploaded after a release stay protected')
+  assert.equal((await request(`/api/proof/files/${uploaded.body.id}`, {}, studio)).response.status, 200, 'version history still opens for the creator')
+  const history = (await request(`/api/proof/projects/${gallery.id}`, {}, studio)).body.deliverables.find((item) => item.id === uploaded.body.deliverableId)
+  assert.deepEqual(history.versions.map((version) => version.number), [2, 1])
+
+  const secondShared = `/api/public/review/${galleryToken}/files/${secondVersion.body.id}`
+  await request(`/api/proof/projects/${gallery.id}/release-originals`, { method: 'POST', body: JSON.stringify({ released: true }) }, studio)
+  assert.equal((await request(`${secondShared}/original`)).response.status, 200)
+  await request(`/api/proof/projects/${gallery.id}/release-originals`, { method: 'POST', body: JSON.stringify({ released: false }) }, studio)
+  assert.equal((await request(`${secondShared}/original`)).response.status, 403, 'taking back a release closes the original again')
+
+  await request(`/api/proof/projects/${gallery.id}/protection`, { method: 'PATCH', body: JSON.stringify({ enabled: false }) }, studio)
+  assert.ok(bytesOf(await request(secondShared)).equals(original), 'turning protection off shares the original')
+  await request(`/api/proof/projects/${gallery.id}/protection`, { method: 'PATCH', body: JSON.stringify({ enabled: true }) }, studio)
+  assert.ok(!bytesOf(await request(secondShared)).equals(original), 'turning protection on protects existing images')
+  assert.equal((await request(`${secondShared}/original`)).response.status, 403)
+
   console.log('ProofFlow API integration passed')
 } finally {
   server.kill()

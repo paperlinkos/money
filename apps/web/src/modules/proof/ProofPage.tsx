@@ -136,10 +136,64 @@ function ProjectDetail({ project, onBack }: { project: Project; onBack: () => vo
       <Input name="Description" value={current.description} set={(description) => setCurrent({ ...current, description })} />
       <button className="mt-4 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Save details</button>
     </form>
+    <Protection project={current} refresh={refresh} note={setNote} feedback={feedback} />
     <Deliverables project={current} uploading={uploading} selectedFile={selectedFile} setSelectedFile={setSelectedFile} upload={upload} refresh={refresh} note={setNote} feedback={feedback} />
     <FeedbackPanel feedback={feedback} reload={loadFeedback} note={setNote} />
     <ReviewLinks projectId={current.id} hasDeliverables={Boolean(current.deliverables?.length)} links={links} reload={loadLinks} newLink={newLink} setNewLink={setNewLink} note={setNote} />
     <section className="mt-6 rounded-2xl border border-dashed bg-white p-5"><h2 className="font-black">Finished with this client?</h2><p className="mt-1 text-sm text-slate-600">Archiving stops the review links and frees a gallery slot on your plan.</p><button type="button" onClick={() => void archive()} className="mt-3 rounded-lg border border-rose-300 px-4 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50">Archive gallery</button></section>
+  </section>
+}
+
+function Protection({ project, refresh, note, feedback }: { project: Project; refresh: () => Promise<void>; note: (message: string) => void; feedback: Feedback }) {
+  const [watermark, setWatermark] = useState(project.watermark_text || '')
+  const [busy, setBusy] = useState(false)
+  const current = (project.deliverables ?? []).map((deliverable: any) => deliverable.versions[0]).filter(Boolean)
+  const images = current.filter((version: any) => version.type.startsWith('image/'))
+  const hasPdf = current.some((version: any) => !version.type.startsWith('image/'))
+  const releasedAt = project.originals_released_at ? new Date(project.originals_released_at) : null
+  const newer = releasedAt ? images.filter((version: any) => new Date(version.createdAt) > releasedAt).length : 0
+  const approved = images.every((version: any) => feedback.approvals.some((approval) => approval.version_id === version.id && approval.current))
+
+  async function change(action: () => Promise<unknown>, message: string) {
+    setBusy(true)
+    try { await action(); await refresh(); note(message)
+    } catch (error) { note(error instanceof Error ? error.message : 'Could not save protection settings.')
+    } finally { setBusy(false) }
+  }
+  const saveSettings = (enabled: boolean, message: string) => change(() => api(`/api/proof/projects/${project.id}/protection`, { method: 'PATCH', body: JSON.stringify({ enabled, watermarkText: watermark }) }), message)
+  const setReleased = (released: boolean, message: string) => change(() => api(`/api/proof/projects/${project.id}/release-originals`, { method: 'POST', body: JSON.stringify({ released }) }), message)
+
+  function toggle(enabled: boolean) {
+    if (!enabled && !window.confirm('Turn off protection? Anyone with the review link will be able to download your full-quality images.')) return
+    void saveSettings(enabled, enabled ? 'Protection is on. Clients now see watermarked previews.' : 'Protection is off. Clients now see your original images.')
+  }
+  function release() {
+    const warning = approved ? 'Release the originals? Your client will be able to download the full-quality images.' : 'Your client has not approved every image yet. Release the originals anyway?'
+    if (window.confirm(warning)) void setReleased(true, 'Originals released. Your client can now download them from the review link.')
+  }
+
+  return <section className="mt-6 rounded-2xl border bg-white p-5">
+    <h2 className="text-xl font-black">Protected previews</h2>
+    <p className="mt-1 text-sm text-slate-600">Clients see a smaller, lower-quality copy of each image with your watermark across it. You always see your originals.</p>
+    <label className="mt-4 flex items-center gap-2 text-sm font-bold"><input type="checkbox" className="h-4 w-4" checked={Boolean(project.protected_preview)} disabled={busy} onChange={(event) => toggle(event.target.checked)} />Protect images in this gallery</label>
+    {project.protected_preview && <>
+      <form onSubmit={(event) => { event.preventDefault(); void saveSettings(true, 'Watermark saved.') }} className="mt-3">
+        <label className="block text-xs font-bold uppercase tracking-wide text-slate-600">Watermark text<input className={field} maxLength={60} value={watermark} placeholder={project.business_name || 'Your business name'} onChange={(event) => setWatermark(event.target.value)} /></label>
+        <p className="mt-1 text-xs text-slate-500">Leave empty to use your business name.</p>
+        <button disabled={busy} className="mt-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold disabled:opacity-60">Save watermark</button>
+      </form>
+      <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
+        <b>Release originals</b>
+        {releasedAt
+          ? <p className="mt-1 text-slate-600">Released {releasedAt.toLocaleString()}. Your client can download these originals from the review link.{newer > 0 && ` ${newer} newer image${newer === 1 ? ' is' : 's are'} still protected.`}</p>
+          : <p className="mt-1 text-slate-600">When you have been paid, release the originals so your client can download the full-quality images.</p>}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(!releasedAt || newer > 0) && <button type="button" disabled={busy || !images.length} onClick={release} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{releasedAt ? 'Release newer images' : 'Release originals'}</button>}
+          {releasedAt && <button type="button" disabled={busy} onClick={() => void setReleased(false, 'Originals taken back. Clients who already downloaded them keep their copies.')} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold disabled:opacity-60">Take back release</button>}
+        </div>
+      </div>
+      <p className={hasPdf ? 'mt-3 rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-900' : 'mt-3 text-sm text-slate-600'}>Only images are protected. PDFs are not watermarked, and clients can open and download them in full.</p>
+    </>}
   </section>
 }
 
@@ -174,6 +228,7 @@ function Deliverables({ project, uploading, selectedFile, setSelectedFile, uploa
       {project.deliverables?.map((deliverable: any) => <article key={deliverable.id} className="rounded-lg border p-3">
         <b>{deliverable.name}</b><span className="float-right text-sm">Current: Version {deliverable.versions[0]?.number}</span>
         <a href={`/api/proof/files/${deliverable.versions[0]?.id}`} target="_blank" rel="noreferrer" className="mt-3 block text-sm font-bold text-emerald-700">Preview / download current version</a>
+        {project.protected_preview && deliverable.versions[0]?.type.startsWith('image/') && <a href={`/api/proof/files/${deliverable.versions[0].id}/preview`} target="_blank" rel="noreferrer" className="mt-2 block text-sm font-bold text-emerald-700">See what your client sees</a>}
         <label className="mt-3 block text-sm font-bold text-emerald-700">{replacing === deliverable.id ? 'Uploading new version…' : 'Upload new version'}<input className="mt-1 block text-sm font-normal text-slate-700" type="file" disabled={replacing !== ''} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => replacement(deliverable.id, event)} /></label>
         <p className="mt-3 text-sm font-bold">Version history</p>
         <div className="mt-2 space-y-2">{deliverable.versions.map((version: any, index: number) => <div key={version.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-50 p-2 text-sm"><span>Version {version.number} · {version.name} {index === 0 ? '· Current' : '· Superseded'}</span><a href={`/api/proof/files/${version.id}`} target="_blank" rel="noreferrer" className="font-bold text-emerald-700">Open</a></div>)}</div>

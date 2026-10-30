@@ -149,3 +149,7 @@ See `PLATFORM_AUDIT.md` and `STABILIZATION_PLAN.md`. PostgreSQL 17 is running lo
 - **Tests:** `scripts/billing-api-integration.mjs` (run by `npm run test:api:integration`) covers limits, gallery passes, webhook signatures, idempotency, underpayment, renewals, cancellation and cross-account verification without calling Paystack.
 - **Known test debt:** the account browser suite is stale against earlier UI changes (choose-then-upload in ProofFlow, reworked Booking workspace). The Booking API concurrency test (`schedule update and reschedule`) is order-dependent and fails intermittently.
 - **Not yet done:** production deployment, sending booking notifications (WhatsApp/email), deposits at booking, cloud-saved invoices. These are listed as "Coming soon" in the UI and must not be described as live.
+
+## Protected previews (client galleries)
+
+A gallery can be protected: clients get a server-made preview of each image (1600px long edge, lower JPEG quality, no metadata, repeated diagonal watermark) and the original stays behind a per-gallery release. Originals uploaded after a release stay protected until released again. New galleries start protected; galleries from before migration `004_protected_preview.sql` stay unprotected. PDFs are not watermarked and the creator is told so.

@@ -44,7 +44,10 @@ ProofFlow uses the existing local PostgreSQL account/session database and keeps 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/api/src/modules/proof/db/001_proof.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/api/src/modules/proof/db/002_feedback.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/api/src/modules/proof/db/003_versioning.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/api/src/modules/proof/db/004_protected_preview.sql
 ```
+
+Protected previews use `sharp` on the API server and need a font there to draw the watermark (for example `apt install fonts-dejavu-core`). Without a font, protected images are withheld from clients rather than shown unmarked.
 
 Replacement uploads create a new immutable version under the same deliverable. Public review links expose only the current version; the creator can still open prior versions. Client approvals are explicit, version-specific review acknowledgements, not legal electronic signatures.
 

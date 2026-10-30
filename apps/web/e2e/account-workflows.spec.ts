@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
+import sharp from 'sharp'
 
-const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82])
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLr9wAAAABJRU5ErkJggg==', 'base64')
 const pdf = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n')
 const monday = '2030-01-07'
 
@@ -117,8 +118,10 @@ test('ProofFlow creator and client complete a versioned review workflow', async 
 
   const newDeliverable = page.locator('section').filter({ hasText: 'Deliverables' }).locator('input[type="file"]').first()
   await newDeliverable.setInputFiles({ name: 'browser-proof.png', mimeType: 'image/png', buffer: png })
+  await page.getByRole('button', { name: 'Upload file' }).click()
   await expect(page.getByText('File uploaded.')).toBeVisible()
   await newDeliverable.setInputFiles({ name: 'brief.pdf', mimeType: 'application/pdf', buffer: pdf })
+  await page.getByRole('button', { name: 'Upload file' }).click()
   await expect(page.getByText('File uploaded.')).toBeVisible()
   await expect(page.getByText('browser-proof.png', { exact: true })).toBeVisible()
   await expect(page.getByText('brief.pdf', { exact: true })).toBeVisible()
@@ -187,5 +190,63 @@ test('ProofFlow creator and client complete a versioned review workflow', async 
   expect(revokedFile.status()).toBe(404)
   await client.goto(`/review/${'x'.repeat(30)}`)
   await expect(client.getByRole('heading', { name: 'Review unavailable' })).toBeVisible()
+  await clientContext.close()
+})
+
+test('Protected gallery shows clients a watermarked preview until originals are released', async ({ page, browser }, testInfo) => {
+  const id = unique('protected-browser', testInfo.project.name)
+  await registerProvider(page, id, `Ada Studio ${testInfo.project.name}`)
+  await page.goto('/tools/proof')
+  await page.getByLabel('Project name').fill('Protected Wedding')
+  await page.getByLabel('Client name').fill('Protected Client')
+  await page.getByRole('button', { name: 'Create project' }).click()
+  await page.getByRole('button', { name: /Protected Wedding/ }).click()
+  await expect(page.getByLabel('Protect images in this gallery')).toBeChecked()
+
+  const photo = await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="2000"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c2d12"/><stop offset="0.5" stop-color="#f59e0b"/><stop offset="1" stop-color="#0f172a"/></linearGradient></defs><rect width="3000" height="2000" fill="url(#g)"/></svg>')).jpeg({ quality: 92 }).toBuffer()
+  const chooser = page.locator('section').filter({ hasText: 'Deliverables' }).locator('input[type="file"]').first()
+  await chooser.setInputFiles({ name: 'wedding.jpg', mimeType: 'image/jpeg', buffer: photo })
+  await page.getByRole('button', { name: 'Upload file' }).click()
+  await expect(page.getByText('File uploaded.')).toBeVisible()
+  await chooser.setInputFiles({ name: 'brief.pdf', mimeType: 'application/pdf', buffer: pdf })
+  await page.getByRole('button', { name: 'Upload file' }).click()
+  await expect(page.locator('article').filter({ hasText: 'brief.pdf' })).toBeVisible()
+  await expect(page.getByText('PDFs are not watermarked')).toBeVisible()
+  await page.getByLabel('Watermark text').fill('Ada Proofs')
+  await page.getByRole('button', { name: 'Save watermark' }).click()
+  await expect(page.getByText('Watermark saved.')).toBeVisible()
+  await page.locator('section').filter({ hasText: 'Protected previews' }).first().screenshot({ path: testInfo.outputPath('creator.png') })
+
+  await page.getByRole('button', { name: 'Generate review link' }).click()
+  const reviewLinks = page.getByRole('heading', { name: 'Review links' }).locator('..')
+  await expect(reviewLinks).toContainText('/review/')
+  const token = (await reviewLinks.innerText()).match(/\/review\/([A-Za-z0-9_-]{43})/)?.[1]
+  expect(token).toBeTruthy()
+
+  const clientContext = await browser.newContext({ viewport: testInfo.project.name === 'mobile' ? { width: 390, height: 844 } : { width: 1280, height: 900 } })
+  const client = await clientContext.newPage()
+  await client.goto(`/review/${token}`)
+  const shown = client.locator('article').filter({ hasText: 'wedding.jpg' }).locator('img')
+  await expect.poll(() => shown.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1600)
+  await expect(client.getByText('This is a watermarked preview.')).toBeVisible()
+  await expect(client.getByRole('link', { name: 'Download original' })).toHaveCount(0)
+  await expect(client.getByRole('link', { name: 'Download file' })).toHaveCount(1)
+  expect(await client.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await client.screenshot({ path: testInfo.outputPath('client.png') })
+  const previewUrl = (await shown.getAttribute('src'))!
+  expect((await client.request.get(`${previewUrl}/original`)).status()).toBe(403)
+  expect(Buffer.compare(await (await client.request.get(previewUrl)).body(), photo)).not.toBe(0)
+  expect(Buffer.compare(await (await page.request.get(`/api/proof/files/${previewUrl.split('/').at(-1)}`)).body(), photo)).toBe(0)
+
+  page.once('dialog', (dialog) => void dialog.accept())
+  await page.getByRole('button', { name: 'Release originals' }).click()
+  await expect(page.getByText('Originals released.')).toBeVisible()
+  await client.reload()
+  const [download] = await Promise.all([client.waitForEvent('download'), client.getByRole('link', { name: 'Download original' }).click()])
+  expect(download.suggestedFilename()).toBe('wedding.jpg')
+  const saved = await download.createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of saved) chunks.push(chunk as Buffer)
+  expect(Buffer.compare(Buffer.concat(chunks), photo)).toBe(0)
   await clientContext.close()
 })

@@ -107,7 +107,9 @@ function PublicDeliverable({ deliverable, token, feedback, refresh }: { delivera
     <div className="p-4"><b>{deliverable.name}</b><span className="float-right text-sm">Version {version.number}</span></div>
     {isImage ? <img src={source} alt={version.name} className="max-h-[28rem] w-full object-contain" /> : <iframe title={version.name} src={source} className="h-96 w-full" />}
     <div className="p-4">
-      <a href={source} download={version.name} className="text-sm font-bold text-emerald-700">Download file</a>
+      {version.originalAvailable
+        ? <a href={version.previewOnly ? `${source}/original` : source} download={version.name} className="text-sm font-bold text-emerald-700">{version.previewOnly ? 'Download original' : 'Download file'}</a>
+        : <p className="mb-2 text-sm text-slate-600">This is a watermarked preview. The full-quality file can be downloaded here once the creator releases it.</p>}
       {isImage && feedback.participant && <button onClick={toggleFavorite} disabled={favoriteBusy} className="ml-4 text-sm font-bold text-emerald-700 disabled:opacity-60">{favoriteBusy ? 'Saving…' : selected ? 'Remove favorite' : 'Favorite image'}</button>}
       {feedback.participant && <button onClick={approve} disabled={approvalBusy || approved} className="ml-4 text-sm font-bold text-emerald-700 disabled:opacity-60">{approvalBusy ? 'Saving…' : approved ? 'Approved' : `Approve Version ${version.number}`}</button>}
       {favoriteError && <p className="mt-2 text-sm text-rose-700">{favoriteError}</p>}

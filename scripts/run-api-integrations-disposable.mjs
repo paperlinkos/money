@@ -33,6 +33,7 @@ try {
     'apps/api/src/modules/proof/db/001_proof.sql',
     'apps/api/src/modules/proof/db/002_feedback.sql',
     'apps/api/src/modules/proof/db/003_versioning.sql',
+    'apps/api/src/modules/proof/db/004_protected_preview.sql',
     'apps/api/src/modules/billing/db/001_billing.sql',
   ]) await db.query(await readFile(migration, 'utf8'))
   await db.end()
