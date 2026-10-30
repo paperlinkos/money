@@ -1,13 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, statfs, unlink, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Express, Request, Response } from 'express'
 import { requireDb } from '../../core/db.js'
-import { hasPaidFeatures } from '../../core/plans.js'
+import { accountPlan, hasPaidFeatures } from '../../core/plans.js'
 import { renderPreview, watermarkSql } from './preview.js'
 
 const root = resolve(process.cwd(), process.env.PROOF_UPLOAD_DIR ?? 'private-uploads/proof')
-const limit = 5 * 1024 * 1024
+const limit = 20 * 1024 * 1024
+// Stops uploads while there is still room, because this disk is shared with other sites.
+const minFreeDiskBytes = Number(process.env.PROOF_MIN_FREE_BYTES ?? 3 * 1024 ** 3)
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const session = (request: Request) => request.header('cookie')?.match(/(?:^|; )northstar_session=([^;]+)/)?.[1]
 
@@ -19,7 +21,7 @@ function fileType(bytes: Buffer) {
   return ''
 }
 
-async function user(request: Request) {
+export async function user(request: Request) {
   const token = session(request)
   if (!token) return undefined
   return (await requireDb().query(
@@ -44,7 +46,7 @@ function incomingFile(request: Request) {
   const bytes = Buffer.from(encoded, 'base64')
   const mime = fileType(bytes)
   const name = String(request.body?.name ?? 'file').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 160)
-  if (!mime || !bytes.length || bytes.length > limit) throw Error('Use a valid JPEG, PNG, WebP, or PDF up to 5 MB.')
+  if (!mime || !bytes.length || bytes.length > limit) throw Error('Use a valid JPEG, PNG, WebP, or PDF up to 20 MB.')
   return { bytes, mime, name }
 }
 
@@ -56,6 +58,23 @@ async function storeBytes(bytes: Buffer, mime: string) {
 }
 
 const isImage = (mime: string) => mime.startsWith('image/')
+
+// Answers the request and returns true when this file will not fit.
+async function outOfRoom(response: Response, userId: string, size: number) {
+  const { storageUsedBytes, storageLimitBytes } = await accountPlan(userId)
+  if (storageUsedBytes + size > storageLimitBytes) {
+    response.status(402).json({ error: 'You have used all the storage on your plan. Upgrade or buy a gallery pass to add more.', upgrade: true })
+    return true
+  }
+  await mkdir(root, { recursive: true })
+  const disk = await statfs(root)
+  if (disk.bavail * disk.bsize - size < minFreeDiskBytes) {
+    console.error('ProofFlow upload refused: server disk is nearly full')
+    response.status(507).json({ error: 'Uploads are paused for a short while. Please try again later.' })
+    return true
+  }
+  return false
+}
 
 async function storedPreview(file: { bytes: Buffer; mime: string }, project: { protected_preview: boolean; watermark: string }) {
   if (!project.protected_preview || !isImage(file.mime)) return { name: null, text: null }
@@ -106,6 +125,7 @@ export function proofFileRoutes(app: Express) {
     try { file = incomingFile(request) } catch (error) { return void response.status(400).json({ error: error instanceof Error ? error.message : 'Invalid upload.' }) }
     const project = (await requireDb().query(`select p.id,p.protected_preview,${watermarkSql} watermark from proof_projects p left join booking_businesses b on b.user_id=p.owner_id where p.id=$1 and p.owner_id=$2`, [request.params.id, userId])).rows[0]
     if (!project) return void response.status(404).json({ error: 'Project not found.' })
+    if (await outOfRoom(response, userId, file.bytes.length)) return
 
     let preview: Awaited<ReturnType<typeof storedPreview>>
     try { preview = await storedPreview(file, project) } catch (error) {
@@ -136,6 +156,7 @@ export function proofFileRoutes(app: Express) {
     try { file = incomingFile(request) } catch (error) { return void response.status(400).json({ error: error instanceof Error ? error.message : 'Invalid upload.' }) }
     const project = (await requireDb().query(`select p.protected_preview,${watermarkSql} watermark from proof_deliverables d join proof_projects p on p.id=d.project_id left join booking_businesses b on b.user_id=p.owner_id where d.id=$1 and p.owner_id=$2`, [request.params.id, userId])).rows[0]
     if (!project) return void response.status(404).json({ error: 'Deliverable not found.' })
+    if (await outOfRoom(response, userId, file.bytes.length)) return
     let preview: Awaited<ReturnType<typeof storedPreview>>
     try { preview = await storedPreview(file, project) } catch (error) {
       console.error('ProofFlow preview failed', error)

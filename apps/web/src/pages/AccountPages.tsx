@@ -65,6 +65,7 @@ export function AccountDashboard() {
           <div className="flex justify-between text-sm"><span className="font-bold">Client galleries</span><span className="text-slate-600">{galleries ?? '–'} of {allowance == null ? 'unlimited' : allowance}</span></div>
           {allowance != null && <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${atLimit ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, (used / Math.max(allowance, 1)) * 100)}%` }} /></div>}
         </div>
+        {billing && <div className="mt-4 flex justify-between text-sm"><span className="font-bold">Storage</span><span className="text-slate-600">{(billing.storageUsedBytes / 1024 ** 3).toFixed(1)} of {(billing.storageLimitBytes / 1024 ** 3).toFixed(0)} GB</span></div>}
         {billing?.currentPeriodEnd && plan !== 'free' && <p className="mt-4 text-sm text-slate-600">{billing.status === 'non_renewing' ? 'Access ends' : 'Renews'} on {new Date(billing.currentPeriodEnd).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}</p>}
         {billing?.status === 'past_due' && <p className="mt-2 text-sm text-amber-800">Your last renewal did not go through. Update your card to keep your plan.</p>}
         <div className="mt-6 flex flex-wrap gap-2">

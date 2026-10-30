@@ -28,7 +28,7 @@ export function PricingPage() {
     <div className="mx-auto max-w-2xl text-center">
       <p className="text-sm font-bold tracking-[0.16em] text-emerald-700 uppercase">Pricing</p>
       <h1 className="mt-4 text-4xl font-black tracking-tight text-balance sm:text-5xl">Start free. Upgrade when clients keep coming.</h1>
-      <p className="mt-5 text-lg leading-8 text-slate-600">Pay monthly with card, transfer or USSD through Paystack. Cancel any time and keep access until the end of the month you paid for.</p>
+      <p className="mt-5 text-lg leading-8 text-slate-600">Pay monthly by card or bank through Paystack. Cancel any time and keep access until the end of the month you paid for.</p>
     </div>
     {error && <p role="alert" className="mx-auto mt-8 max-w-xl rounded-xl bg-rose-50 p-4 text-center text-sm font-bold text-rose-800">{error}</p>}
     <div className="mt-12 grid gap-5 lg:grid-cols-3">
@@ -54,7 +54,7 @@ export function PricingPage() {
 
     <div className="mt-12 grid gap-6 md:grid-cols-2">
       <section className="rounded-3xl bg-stone-100 p-7"><h2 className="font-black">Coming soon to every plan</h2><ul className="mt-4 space-y-2 text-sm text-slate-600">{comingSoon.map((item) => <li key={item}>• {item}</li>)}</ul></section>
-      <section className="rounded-3xl bg-stone-100 p-7"><h2 className="font-black">What counts as a gallery?</h2><p className="mt-4 text-sm leading-6 text-slate-600">One client project, such as a wedding or a brand shoot, with as many photos, stills or PDFs and versions as you need. Archive finished projects to free up a slot.</p></section>
+      <section className="rounded-3xl bg-stone-100 p-7"><h2 className="font-black">What counts as a gallery?</h2><p className="mt-4 text-sm leading-6 text-slate-600">One client project, such as a wedding or a brand shoot, with photos, stills, PDFs and versions up to 20 MB each, within your plan’s storage. Archive finished projects to free up a slot. A slot from a gallery pass is used once and does not come back.</p></section>
     </div>
   </div>
 }
@@ -78,7 +78,7 @@ export function BillingReturnPage() {
     checking: ['Confirming your payment…', 'This takes a few seconds.'],
     success: ['Payment received. Thank you!', state.billing?.paymentKind === 'gallery_pass' ? 'Your gallery pass has been added to your account.' : `You are now on ${state.billing?.plan === 'studio' ? 'Studio' : 'Pro'}. Your new limits are active.`],
     pending: ['We are still confirming your payment', 'Paystack has not confirmed it yet. Refresh this page in a minute; you will not be charged twice.'],
-    declined: ['Your payment did not go through', 'You have not been charged and your plan has not changed. You can try again with another card, bank transfer or USSD.'],
+    declined: ['Your payment did not go through', 'You have not been charged and your plan has not changed. You can try again with another card or payment method.'],
     failed: ['We could not confirm this payment', 'If money left your account, contact us with your Paystack receipt and we will sort it out.'],
   }[state.status]
 

@@ -89,8 +89,8 @@ function ProjectDetail({ project, onBack }: { project: Project; onBack: () => vo
   useEffect(() => { loadLinks(); loadFeedback() }, [current.id])
 
   async function upload(file: File) {
-    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) || file.size > 5 * 1024 * 1024) {
-      setNote('Use JPEG, PNG, WebP, or PDF up to 5 MB.')
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) || file.size > 20 * 1024 * 1024) {
+      setNote('Use JPEG, PNG, WebP, or PDF up to 20 MB.')
       return
     }
     setUploading(true)
@@ -203,7 +203,7 @@ function Deliverables({ project, uploading, selectedFile, setSelectedFile, uploa
     const input = event.currentTarget
     const file = input.files?.[0]
     if (!file) return
-    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) || file.size > 5 * 1024 * 1024) return note('Use JPEG, PNG, WebP, or PDF up to 5 MB.')
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) || file.size > 20 * 1024 * 1024) return note('Use JPEG, PNG, WebP, or PDF up to 20 MB.')
     setReplacing(deliverableId)
     try {
       const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file) })
@@ -215,7 +215,7 @@ function Deliverables({ project, uploading, selectedFile, setSelectedFile, uploa
   }
   return <section className="mt-6 rounded-2xl border bg-white p-5">
     <h2 className="text-xl font-black">Deliverables</h2>
-    <p className="mt-1 text-sm text-slate-600">JPEG, PNG, WebP, or PDF; maximum 5 MB. Upload a new version to preserve earlier files and feedback.</p>
+    <p className="mt-1 text-sm text-slate-600">JPEG, PNG, WebP, or PDF; maximum 20 MB. Upload a new version to preserve earlier files and feedback.</p>
     <div className="mt-4 flex flex-wrap items-center gap-3">
       <label className="inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold hover:border-emerald-600 hover:text-emerald-700">
         <input className="sr-only" type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => { const file = event.currentTarget.files?.[0] ?? null; setSelectedFile(file); event.currentTarget.value = '' }} />

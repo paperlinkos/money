@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { Express, Request, Response } from 'express'
 import { requireDb } from '../../core/db.js'
-import { accountPlan, hasPaidFeatures } from '../../core/plans.js'
+import { accountPlan, hasPaidFeatures, plans } from '../../core/plans.js'
 import { warmPreviews } from './files.js'
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -34,11 +34,24 @@ export function proofRoutes(app: Express) {
     const name = text(request.body?.name, 160)
     const clientName = text(request.body?.clientName, 120)
     if (!name || !clientName) return void response.status(400).json({ error: 'Project and client name are required.' })
-    const { plan, galleryAllowance } = await accountPlan(userId)
-    const active = Number((await requireDb().query('select count(*) from proof_projects where owner_id=$1 and archived_at is null', [userId])).rows[0].count)
-    if (active >= galleryAllowance) return void response.status(402).json({ error: plan === 'free' ? 'Your Free plan includes 1 client gallery. Upgrade or buy a gallery pass to add more.' : 'You have reached your plan’s gallery limit. Upgrade to Studio for unlimited galleries.', upgrade: true })
-    const project = await requireDb().query('insert into proof_projects(id,owner_id,name,client_name,client_email,description,due_date,protected_preview) values($1,$2,$3,$4,$5,$6,$7,$8) returning *', [randomUUID(), userId, name, clientName, text(request.body?.clientEmail, 160) || null, text(request.body?.description, 2000), request.body?.dueDate || null, request.body?.protectedPreview !== false])
-    response.status(201).json(project.rows[0])
+    const { plan } = await accountPlan(userId)
+    const client = await requireDb().connect()
+    try {
+      await client.query('begin')
+      await client.query('select id from platform_users where id=$1 for update', [userId])
+      const included = Number((await client.query('select count(*) from proof_projects where owner_id=$1 and archived_at is null and not uses_gallery_pass', [userId])).rows[0].count)
+      const usesPass = included >= plans[plan].galleries
+      if (usesPass && !(await client.query('update billing_credits set gallery_credits=gallery_credits-1 where user_id=$1 and gallery_credits>0', [userId])).rowCount) {
+        await client.query('rollback')
+        return void response.status(402).json({ error: plan === 'free' ? 'Your Free plan includes 1 client gallery. Upgrade or buy a gallery pass to add more.' : 'You have reached your plan’s gallery limit. Upgrade to Studio for unlimited galleries.', upgrade: true })
+      }
+      const project = await client.query('insert into proof_projects(id,owner_id,name,client_name,client_email,description,due_date,protected_preview,uses_gallery_pass) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *', [randomUUID(), userId, name, clientName, text(request.body?.clientEmail, 160) || null, text(request.body?.description, 2000), request.body?.dueDate || null, request.body?.protectedPreview !== false, usesPass])
+      await client.query('commit')
+      response.status(201).json(project.rows[0])
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined)
+      throw error
+    } finally { client.release() }
   }))
 
   app.get('/api/proof/projects/:id', auth(async (request, response, userId) => {

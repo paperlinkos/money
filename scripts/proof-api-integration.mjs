@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import pg from 'pg'
@@ -142,6 +143,32 @@ try {
   assert.equal((await request(`/api/public/review/${freeToken}/approvals`, { method: 'POST', body: JSON.stringify({ versionId: freeFile.id, confirmed: true }) }, freeClient)).response.status, 403, 'free plans cannot collect approvals')
   assert.equal((await request(`/api/public/review/${freeToken}/comments`, { method: 'POST', body: JSON.stringify({ versionId: freeFile.id, body: 'Lovely' }) }, freeClient)).response.status, 201, 'free plans keep comments')
   assert.equal((await request(`/api/public/review/${freeToken}/favorites/${freeFile.id}`, { method: 'PUT' }, freeClient)).response.status, 204, 'free plans keep favourites')
+
+  // Uploads up to 20 MB are accepted from creators, while strangers cannot send large bodies.
+  const noise = crypto.randomBytes(4000 * 3000 * 3)
+  const bigImage = await sharp(noise, { raw: { width: 4000, height: 3000, channels: 3 } }).jpeg({ quality: 92 }).toBuffer()
+  assert.ok(bigImage.length > 5 * 1024 * 1024 && bigImage.length < 20 * 1024 * 1024, `large test image is ${bigImage.length} bytes`)
+  const bigBody = JSON.stringify({ name: 'big.jpg', data: `data:image/jpeg;base64,${bigImage.toString('base64')}` })
+  assert.equal((await request(`/api/proof/projects/${freeProject.id}/files`, { method: 'POST', body: bigBody }, freeCreator)).response.status, 201, 'a large photo uploads')
+  assert.equal((await fetch(`${base}/api/proof/projects/${freeProject.id}/files`, { method: 'POST', body: JSON.stringify({ data: 'x'.repeat(9 * 1024 * 1024) }), headers: { Origin: origin, 'Content-Type': 'application/json' } })).status, 413, 'strangers cannot send large bodies')
+  const overLimit = JSON.stringify({ name: 'huge.jpg', data: `data:image/jpeg;base64,${Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(20.5 * 1024 * 1024)]).toString('base64')}` })
+  assert.equal((await request(`/api/proof/projects/${freeProject.id}/files`, { method: 'POST', body: overLimit }, freeCreator)).response.status, 400, 'files over 20 MB are refused')
+
+  // Plan storage is enforced, and a nearly full disk stops uploads for everyone.
+  const quotaDb = new pg.Client({ connectionString: databaseUrl })
+  await quotaDb.connect()
+  await quotaDb.query('update proof_versions set size_bytes=$1 where id=$2', [1024 ** 3, freeFile.id])
+  await quotaDb.end()
+  const overQuota = await request(`/api/proof/projects/${freeProject.id}/files`, { method: 'POST', body: JSON.stringify({ name: 'more.png', data: png }) }, freeCreator)
+  assert.equal(overQuota.response.status, 402, 'plan storage is enforced')
+  assert.equal(overQuota.body.upgrade, true)
+  const fullPort = port + 10
+  const fullDisk = spawn('node', ['apps/api/dist/server.js'], { cwd: process.cwd(), env: { ...process.env, PORT: String(fullPort), WEB_ORIGIN: origin, PROOF_UPLOAD_DIR: uploadDir, PROOF_MIN_FREE_BYTES: String(Number.MAX_SAFE_INTEGER) }, stdio: 'ignore' })
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const refused = await fetch(`http://127.0.0.1:${fullPort}/api/proof/projects/${ownedProject.id}/files`, { method: 'POST', body: JSON.stringify({ name: 'disk.png', data: png }), headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: creator.cookie } })
+    assert.equal(refused.status, 507, 'a nearly full disk stops uploads')
+  } finally { fullDisk.kill() }
 
   // Protected previews: a public link never gets the original until the creator releases it.
   const studio = await register('ada-studio')

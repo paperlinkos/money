@@ -2,6 +2,7 @@ import sharp from 'sharp'
 
 const longEdge = 1600
 const jpegQuality = 60
+const maxInputPixels = 100_000_000
 
 // Selects the text to stamp on a project's previews. Needs proof_projects as p and booking_businesses as b.
 export const watermarkSql = "coalesce(nullif(p.watermark_text,''),b.name,'Proof preview')"
@@ -29,10 +30,10 @@ async function assertWatermarkDraws(text: string) {
   if (!channels[3]?.max) throw Error('Watermark text did not render. Install a font such as DejaVu Sans on the server.')
 }
 
-export async function renderPreview(original: Buffer, text: string) {
+async function render(original: Buffer, text: string) {
   await assertWatermarkDraws(text)
   // Exports with small flaws still open for the client, so they must still get a preview here.
-  const { data, info } = await sharp(original, { failOn: 'none' })
+  const { data, info } = await sharp(original, { failOn: 'none', limitInputPixels: maxInputPixels })
     .rotate()
     .resize({ width: longEdge, height: longEdge, fit: 'inside', withoutEnlargement: true })
     .flatten({ background: '#ffffff' })
@@ -43,4 +44,12 @@ export async function renderPreview(original: Buffer, text: string) {
     .composite([{ input: overlay(info.width, info.height, text) }])
     .jpeg({ quality: jpegQuality, mozjpeg: true })
     .toBuffer()
+}
+
+// One at a time: large images are memory-hungry and the server is small.
+let queue: Promise<unknown> = Promise.resolve()
+export function renderPreview(original: Buffer, text: string) {
+  const job = queue.then(() => render(original, text))
+  queue = job.catch(() => undefined)
+  return job
 }

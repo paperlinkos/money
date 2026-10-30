@@ -81,6 +81,13 @@ try {
   const oldest = (await db.query("select id from proof_projects where owner_id=$1 and name='First gallery'", [creator.userId])).rows[0].id
   assert.equal((await request(`/api/proof/projects/${oldest}/archive`, { method: 'POST' }, creator)).response.status, 204)
   assert.equal((await gallery(creator, 'Third gallery')).response.status, 201)
+  // A pass covers one project: archiving that project does not give the slot back.
+  const passGallery = (await db.query("select id from proof_projects where owner_id=$1 and uses_gallery_pass", [creator.userId])).rows
+  assert.equal(passGallery.length, 1)
+  assert.equal((await request(`/api/proof/projects/${passGallery[0].id}/archive`, { method: 'POST' }, creator)).response.status, 204)
+  assert.equal((await me(creator)).galleryAllowance, 1)
+  assert.equal((await gallery(creator, 'Fourth gallery')).response.status, 402)
+  assert.equal((await me(creator)).storageLimitBytes, 4 * 1024 ** 3)
 
   // An underpaid charge never settles.
   const pro = await register('billing-pro')

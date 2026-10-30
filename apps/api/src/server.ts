@@ -2,7 +2,7 @@ import express from 'express'
 import { config } from './core/config.js'
 import { bookingRoutes } from './modules/booking/routes.js'
 import { proofRoutes } from './modules/proof/routes.js'
-import { proofFileRoutes } from './modules/proof/files.js'
+import { proofFileRoutes, user } from './modules/proof/files.js'
 import { proofFeedbackRoutes } from './modules/proof/feedback.js'
 import { billingRoutes } from './modules/billing/routes.js'
 
@@ -11,7 +11,15 @@ app.disable('x-powered-by')
 // nginx runs on this machine, so rate limits must key on the visitor it reports rather than on nginx.
 app.set('trust proxy', 'loopback')
 // Paystack signs the exact request bytes, so keep them for webhook verification.
-app.use(express.json({ limit: '8mb', verify: (request, _response, buffer) => { (request as typeof request & { rawBody?: Buffer }).rawBody = buffer } }))
+const keepRawBody = (request: unknown, _response: unknown, buffer: Buffer) => { (request as { rawBody?: Buffer }).rawBody = buffer }
+const normalBody = express.json({ limit: '8mb', verify: keepRawBody })
+const uploadBody = express.json({ limit: '28mb', verify: keepRawBody })
+const uploadPath = /^\/api\/proof\/(projects\/[^/]+\/files|deliverables\/[^/]+\/versions)$/
+// Only signed-in creators may send a large body, so strangers cannot use uploads to exhaust memory.
+app.use((request, response, next) => {
+  if (request.method !== 'POST' || !uploadPath.test(request.path)) return normalBody(request, response, next)
+  user(request).then((userId) => (userId ? uploadBody : normalBody)(request, response, next)).catch(next)
+})
 const webOrigin = config.webOrigin
 const localDevelopmentOrigins = ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
 const allowedOrigins = new Set(process.env.NODE_ENV === 'production' ? [webOrigin] : [webOrigin, ...localDevelopmentOrigins])

@@ -12,9 +12,9 @@ const journey = [
 
 const questions = [
   ['Is it really free to start?', 'Yes. Your booking link, invoices, payment tracker, gear checklists and your first client gallery are free with no time limit. You only pay when you need more galleries.'],
-  ['How do I pay for Pro or Studio?', 'With your card, bank transfer or USSD through Paystack. Plans renew monthly and you can cancel any time from your dashboard; you keep access until the end of the month you paid for.'],
+  ['How do I pay for Pro or Studio?', 'By card or bank through Paystack. Plans renew monthly and you can cancel any time from your dashboard; you keep access until the end of the month you paid for.'],
   ['Do my clients need an account?', 'No. Clients open your booking link or gallery link and use it straight away, on any phone.'],
-  ['What is a gallery pass?', 'A one-time ₦2,500 payment for one extra client gallery, for when you have a busy month but do not want a subscription.'],
+  ['What is a gallery pass?', 'A one-time ₦2,500 payment for one extra client gallery on one project, for when you have a busy month but do not want a subscription.'],
   ['Where is my work saved?', 'Bookings and client galleries are saved to your account. Invoices, the payment tracker, gear and expenses currently save on the device you use, so download backups of anything important.'],
 ]
 

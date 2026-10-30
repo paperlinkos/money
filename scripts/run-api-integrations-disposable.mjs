@@ -35,6 +35,7 @@ try {
     'apps/api/src/modules/proof/db/003_versioning.sql',
     'apps/api/src/modules/proof/db/004_protected_preview.sql',
     'apps/api/src/modules/billing/db/001_billing.sql',
+    'apps/api/src/modules/billing/db/002_gallery_pass.sql',
   ]) await db.query(await readFile(migration, 'utf8'))
   await db.end()
   const testEnvironment = { ...process.env, DATABASE_URL: testUrl.toString() }
