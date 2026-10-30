@@ -51,6 +51,9 @@ export function PublicReviewPage({ token }: { token: string }) {
   return <main className="mx-auto max-w-3xl px-5 py-10">
     <p className="text-sm font-bold text-emerald-700">PaperlinkOS review</p>
     <h1 className="mt-2 text-3xl font-black">{data.project.name}</h1>
+    {data.project.clientName && <p className="mt-2 text-slate-600">Prepared for {data.project.clientName}</p>}
+    {data.project.description && <p className="mt-3 max-w-2xl text-slate-600">{data.project.description}</p>}
+    {data.deliverables.length === 0 ? <section className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-6"><h2 className="text-xl font-black">Nothing is ready to review yet</h2><p className="mt-2 max-w-xl leading-6 text-slate-600">The creator has shared this link before uploading a file. Ask them to upload the image or PDF, then refresh this page.</p></section> : <>
     {!feedback.participant && <form onSubmit={identify} className="mt-6 rounded-xl border bg-white p-4">
       <label className="block text-sm font-bold">Tell the creator who you are<input required maxLength={80} className="mt-2 w-full rounded border p-2" value={name} onChange={(event) => setName(event.target.value)} placeholder="Display name" /></label>
       <button disabled={settingName} className="mt-3 rounded bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{settingName ? 'Saving…' : 'Continue'}</button>
@@ -58,6 +61,7 @@ export function PublicReviewPage({ token }: { token: string }) {
     <section className="mt-8 space-y-5">
       {data.deliverables.map((deliverable: any) => <PublicDeliverable key={deliverable.version.id} deliverable={deliverable} token={token} feedback={feedback} refresh={load} />)}
     </section>
+    </>}
   </main>
 }
 

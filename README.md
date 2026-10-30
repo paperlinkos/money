@@ -9,6 +9,7 @@ The Appointment & Booking Manager has a local, account-backed provider path. Use
 ```bash
 psql "$DATABASE_URL" -f apps/api/src/modules/booking/db/001_booking.sql
 psql "$DATABASE_URL" -f apps/api/src/modules/booking/db/002_booking_scheduling.sql
+psql "$DATABASE_URL" -f apps/api/src/modules/booking/db/003_notifications.sql
 ```
 
 The provider workspace at `/tools/booking/account` supports service edits/deactivation, working hours, regular day-specific breaks, and rescheduling. A settings change is rejected if it would conflict with a confirmed appointment. Public booking availability excludes breaks and confirmed appointments; pending requests do not reserve a time.
@@ -19,7 +20,7 @@ For the disposable Booking API integration test, compile the API, create a separ
 node scripts/booking-api-integration.mjs
 ```
 
-Do not point this test at the development database. Playwright is not currently installed, so final Booking client/provider and mobile testing remains manual.
+Do not point this test at the development database. Playwright browser coverage is available through the dedicated disposable test runner below.
 
 Use `DATABASE_URL` only on the API server; never place it in a `VITE_*` frontend variable. The browser-local prototype at `/tools/booking` remains separate. Providers use `/tools/booking/account`; clients use `/book/<provider-slug>` locally. Browser records are not migrated automatically.
 
@@ -55,7 +56,12 @@ Other commands:
 npm run check
 npm test
 npm run build
+npm run test:e2e --workspace=@platform/web
+npm run test:api:integration
+npm run test:e2e:accounts
 ```
+
+`npm run test:api:integration` creates and removes a uniquely named PostgreSQL test database. `npm run test:e2e:accounts` additionally starts a dedicated API and Vite server, uses separate provider/creator and public browser contexts, and stores ProofFlow uploads in a temporary directory. Both commands preserve the `paperlinkos` development database and normal browser storage.
 
 Run ProofFlow's real API integration suite only against a disposable database, never your development database. The test runner expects the compiled API and a test `DATABASE_URL`:
 
@@ -64,7 +70,7 @@ npm run build --workspace=@platform/api
 DATABASE_URL="postgresql://…/paperlinkos_proof_test" npm run test:proof:integration
 ```
 
-The project maintainer's local verification command creates, migrates, and removes that exact disposable database before and after the run. Browser automation is not installed; use separate normal and private browser sessions for final client/creator acceptance testing.
+The project maintainer's local verification command creates, migrates, and removes that exact disposable database before and after the run. Browser automation is available through the locally installed Google Chrome; `npm run test:e2e:accounts` uses separate authenticated and public Playwright contexts for the Booking and ProofFlow acceptance flows.
 
 For the public product pages, visit:
 

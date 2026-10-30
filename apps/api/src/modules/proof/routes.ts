@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { Express, Request, Response } from 'express'
 import { requireDb } from '../../core/db.js'
+import { accountPlan } from '../../core/plans.js'
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const text = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) : ''
@@ -32,6 +33,9 @@ export function proofRoutes(app: Express) {
     const name = text(request.body?.name, 160)
     const clientName = text(request.body?.clientName, 120)
     if (!name || !clientName) return void response.status(400).json({ error: 'Project and client name are required.' })
+    const { plan, galleryAllowance } = await accountPlan(userId)
+    const active = Number((await requireDb().query('select count(*) from proof_projects where owner_id=$1 and archived_at is null', [userId])).rows[0].count)
+    if (active >= galleryAllowance) return void response.status(402).json({ error: plan === 'free' ? 'Your Free plan includes 1 client gallery. Upgrade or buy a gallery pass to add more.' : 'You have reached your plan’s gallery limit. Upgrade to Studio for unlimited galleries.', upgrade: true })
     const project = await requireDb().query('insert into proof_projects(id,owner_id,name,client_name,client_email,description,due_date) values($1,$2,$3,$4,$5,$6,$7) returning *', [randomUUID(), userId, name, clientName, text(request.body?.clientEmail, 160) || null, text(request.body?.description, 2000), request.body?.dueDate || null])
     response.status(201).json(project.rows[0])
   }))
@@ -57,6 +61,14 @@ export function proofRoutes(app: Express) {
     response.json(project.rows[0])
   }))
 
+  // Archiving frees a gallery slot, so it also stops the gallery being shared.
+  app.post('/api/proof/projects/:id/archive', auth(async (request, response, userId) => {
+    const project = await requireDb().query('update proof_projects set archived_at=now() where id=$1 and owner_id=$2 and archived_at is null returning id', [request.params.id, userId])
+    if (!project.rowCount) return void response.status(404).json({ error: 'Gallery not found.' })
+    await requireDb().query('update proof_review_links set revoked_at=now() where project_id=$1 and revoked_at is null', [request.params.id])
+    response.sendStatus(204)
+  }))
+
   app.get('/api/proof/projects/:id/review-links', auth(async (request, response, userId) => {
     const links = await requireDb().query('select l.id,l.expires_at,l.revoked_at,l.created_at from proof_review_links l join proof_projects p on p.id=l.project_id where l.project_id=$1 and p.owner_id=$2 order by l.created_at desc', [request.params.id, userId])
     response.json(links.rows)
@@ -65,6 +77,8 @@ export function proofRoutes(app: Express) {
   app.post('/api/proof/projects/:id/review-links', auth(async (request, response, userId) => {
     const project = (await requireDb().query('select id from proof_projects where id=$1 and owner_id=$2', [request.params.id, userId])).rows[0]
     if (!project) return void response.status(404).json({ error: 'Project not found.' })
+    const deliverable = (await requireDb().query('select 1 from proof_deliverables where project_id=$1 limit 1', [project.id])).rowCount
+    if (!deliverable) return void response.status(400).json({ error: 'Upload at least one deliverable before creating a review link.' })
     const token = randomBytes(32).toString('base64url')
     await requireDb().query('insert into proof_review_links(id,project_id,token_hash,expires_at) values($1,$2,$3,$4)', [randomUUID(), project.id, hash(token), request.body?.expiresAt || null])
     response.status(201).json({ url: `/review/${token}` })

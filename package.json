@@ -12,7 +12,9 @@
     "build:static": "npm run build:static --workspace=@platform/web",
     "check": "npm run check --workspace=@platform/web && npm run check --workspace=@platform/api",
     "test": "npm run test --workspace=@platform/web",
-    "test:proof:integration": "node scripts/proof-api-integration.mjs"
+    "test:proof:integration": "node scripts/proof-api-integration.mjs",
+    "test:e2e:accounts": "node scripts/run-account-browser-tests.mjs",
+    "test:api:integration": "node scripts/run-api-integrations-disposable.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

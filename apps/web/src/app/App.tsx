@@ -9,15 +9,23 @@ import { ProviderBooking, PublicBooking } from '../modules/booking/AccountBookin
 import { ExpensePage } from '../modules/expenses/ExpensePage'
 import { ProofPage } from '../modules/proof/ProofPage'
 import { PublicReviewPage } from '../modules/proof/PublicReviewPage'
-import { ContactPage, FeedbackPage, FutureToolPage, PricingPage, PrivacyPage, ToolsPage } from '../pages/InfoPages'
+import { ContactPage, FeedbackPage, FutureToolPage, PrivacyPage, ToolsPage } from '../pages/InfoPages'
+import { BillingReturnPage, PricingPage } from '../pages/PricingPage'
+import { AccountDashboard, AccountProfilePage } from '../pages/AccountPages'
 
 export function App() {
   const path = window.location.pathname
+  const query = new URLSearchParams(window.location.search)
+  const requestedBookingTab = query.get('tab')
+  const bookingTab = requestedBookingTab === 'appointments' || requestedBookingTab === 'setup' || requestedBookingTab === 'profile' ? requestedBookingTab : 'overview'
   const publicBookingSlug = path.match(/^\/book\/([a-z0-9-]{3,60})\/?$/)?.[1]
   const reviewToken = path.match(/^\/review\/([A-Za-z0-9_-]{20,})\/?$/)?.[1]
   const page = reviewToken ? <PublicReviewPage token={reviewToken} /> : publicBookingSlug ? <PublicBooking slug={publicBookingSlug} />
     : path === '/book' || path === '/book/' ? <PublicBookingDirectory />
-    : path === '/tools/booking/account' ? <ProviderBooking />
+    : path === '/tools/booking/account' ? <ProviderBooking initialMode={query.get('mode') === 'signup' ? 'signup' : 'signin'} initialTab={bookingTab} />
+    : path === '/account' ? query.has('mode') ? <ProviderBooking initialMode={query.get('mode') === 'signup' ? 'signup' : 'signin'} /> : <AccountDashboard />
+    : path === '/profile' ? <AccountProfilePage />
+    : path === '/billing/return' ? <BillingReturnPage />
     : path === '/tools/invoice' ? <InvoicePage />
       : path === '/tools/debts' ? <DebtPage />
         : path === '/tools/gear' ? <GearPage />
@@ -32,24 +40,27 @@ export function App() {
                         : path === '/feedback' ? <FeedbackPage />
                           : <HomePage />
   const titles: Record<string, string> = {
-    '/tools/invoice': 'Create an invoice — Northstar', '/tools/debts': 'Debt & Payment Tracker — Northstar', '/tools/gear': 'GearList — Northstar', '/tools/booking': 'Appointment & Booking Manager — Northstar', '/tools/expenses': 'SpendTrack — Northstar', '/tools': 'Tools — Northstar', '/tools/inventory': 'Inventory Tool — Northstar', '/pricing': 'Pricing — Northstar', '/privacy': 'Privacy — Northstar', '/contact': 'Contact — Northstar', '/feedback': 'Feedback — Northstar',
+    '/account': 'Dashboard', '/profile': 'My profile', '/tools/booking/account': 'Booking workspace', '/billing/return': 'Payment',
+    '/tools/invoice': 'Invoices & quotations', '/tools/debts': 'Payment tracker', '/tools/gear': 'Gear checklists', '/tools/booking': 'Booking manager (offline)', '/tools/expenses': 'Expense tracker', '/tools/proof': 'Client galleries', '/tools': 'Free tools for creatives', '/tools/inventory': 'Inventory', '/pricing': 'Pricing', '/privacy': 'Privacy', '/contact': 'Contact', '/feedback': 'Feedback',
   }
   const descriptions: Record<string, string> = {
-    '/tools/invoice': 'Create a professional invoice or quotation from your browser.',
-    '/tools/debts': 'Track customer debts, repayments, balances, and payment reminders from your browser.',
-    '/tools/gear': 'Manage gear, gig checklists, and local rental enquiries with GearList.',
-    '/tools/booking': 'Manage service appointments, availability, and local booking requests.',
-    '/tools/expenses': 'Track local business expenses, categories, projects, and reports.',
-    '/tools': 'Explore focused business tools from Northstar.',
-    '/tools/inventory': 'A future Northstar tool. It is not available yet.',
-    '/pricing': 'Free invoice creation today, with proposed future Northstar plans.',
-    '/privacy': 'How Northstar handles locally stored invoice data in this prototype.',
-    '/contact': 'Contact and feedback information for Northstar Invoice Maker.',
-    '/feedback': 'Share product feedback for the Northstar Invoice Maker prototype.',
+    '/account': 'Your PaperlinkOS dashboard.', '/profile': 'Manage your PaperlinkOS account profile.', '/tools/booking/account': 'Manage your services, availability and client appointment requests.',
+    '/tools/invoice': 'Create a professional invoice or quotation from your phone or browser, free.',
+    '/tools/debts': 'Track what clients owe you, record part-payments and send WhatsApp reminders.',
+    '/tools/gear': 'Pack for every shoot with gear checklists and prepare rental lists.',
+    '/tools/booking': 'Manage service appointments and availability on this device.',
+    '/tools/expenses': 'Track shoot expenses and receipts per project.',
+    '/tools/proof': 'Private client galleries with favourites, comments, revision requests and approvals.',
+    '/tools': 'Free invoice, payment, gear and expense tools for Nigerian creatives.',
+    '/tools/inventory': 'A future PaperlinkOS tool. It is not available yet.',
+    '/pricing': 'PaperlinkOS plans for creatives: Free, Pro ₦5,000/month and Studio ₦12,000/month.',
+    '/privacy': 'How PaperlinkOS handles your data.',
+    '/contact': 'Contact PaperlinkOS.',
+    '/feedback': 'Share product feedback with PaperlinkOS.',
   }
   useEffect(() => {
-    document.title = titles[path]?.replaceAll('Northstar', 'PaperlinkOS') ?? 'Free Invoice & Quotation Maker — PaperlinkOS'
-    document.querySelector('meta[name="description"]')?.setAttribute('content', descriptions[path] ?? 'Create clear invoices and quotations from your browser, free to start.')
+    document.title = titles[path] ? `${titles[path]} — PaperlinkOS` : 'PaperlinkOS — Bookings, client galleries and invoices for creatives'
+    document.querySelector('meta[name="description"]')?.setAttribute('content', descriptions[path] ?? 'Bookings, client galleries, invoices and payment tracking for Nigerian photographers, videographers and makeup artists. Free to start.')
     const baseUrl = import.meta.env.VITE_SITE_URL?.replace(/\/$/, '')
     const canonical = baseUrl ? `${baseUrl}${path === '/' ? '/' : path}` : path
     let canonicalElement = document.querySelector('link[rel="canonical"]')
@@ -62,13 +73,15 @@ export function App() {
     document.querySelector('meta[property="og:url"]')?.setAttribute('content', canonical)
   }, [path])
 
+  const publicReview = Boolean(reviewToken)
+
   return (
     <div className="flex min-h-screen flex-col bg-stone-50 text-slate-950">
-      <SiteHeader />
+      {!publicReview && <SiteHeader />}
       <main className="flex-1">
         {page}
       </main>
-      <SiteFooter />
+      {!publicReview && <SiteFooter />}
     </div>
   )
 }

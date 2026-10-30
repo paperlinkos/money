@@ -19,7 +19,7 @@ async function api(path: string, options?: RequestInit) {
     ...options,
   })
   const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw Error(body.error || 'Request failed')
+  if (!response.ok) throw Object.assign(Error(body.error || 'Request failed'), { status: response.status, upgrade: Boolean(body.upgrade) })
   return body
 }
 
@@ -31,17 +31,21 @@ export function ProofPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selected, setSelected] = useState<Project | null>(null)
   const [note, setNote] = useState('')
-  const load = () => api('/api/proof/projects').then(setProjects).catch((error) => setNote(error.message))
+  const [blocker, setBlocker] = useState<'signin' | 'upgrade' | null>(null)
+  const load = () => api('/api/proof/projects').then((rows) => { setProjects(rows); setBlocker(null) }).catch((error) => { setNote(error.message); if (error.status === 401) setBlocker('signin') })
 
   useEffect(() => { load() }, [])
 
   if (selected) return <ProjectDetail project={selected} onBack={() => { setSelected(null); load() }} />
 
   return <section className="mx-auto max-w-5xl px-5 py-8">
-    <a href="/tools" className="text-sm font-bold text-emerald-700">← All tools</a>
-    <h1 className="mt-2 text-3xl font-black">ProofFlow</h1>
-    {note && <Notice text={note} />}
-    <NewProject done={load} fail={setNote} />
+    <a href="/account" className="text-sm font-bold text-emerald-700">← Dashboard</a>
+    <h1 className="mt-2 text-3xl font-black">Client galleries</h1>
+    <p className="mt-1 text-slate-600">Share work privately. Clients pick favourites, leave comments, request changes and approve the final version.</p>
+    {blocker === 'signin' ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><b>Sign in to use client galleries.</b> Galleries are saved to your account so clients can open them from any device.<div className="mt-3 flex gap-2"><a href="/account?mode=signup&next=/tools/proof" className="rounded-lg bg-slate-950 px-3 py-2 font-bold text-white">Create free account</a><a href="/account?next=/tools/proof" className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold">Sign in</a></div></div>
+      : note && <Notice text={note} />}
+    {blocker === 'upgrade' && <a href="/pricing" className="mt-2 inline-flex rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">See plans</a>}
+    {blocker !== 'signin' && <NewProject done={load} fail={(message, upgrade) => { setNote(message); setBlocker(upgrade ? 'upgrade' : null) }} />}
     <div className="mt-6 space-y-3">
       {projects.map((project) => <button key={project.id} onClick={() => api(`/api/proof/projects/${project.id}`).then(setSelected).catch((error) => setNote(error.message))} className="block w-full rounded-xl border bg-white p-4 text-left">
         <b>{project.name}</b><span className="float-right text-sm">{project.status}</span><p className="text-sm text-slate-600">{project.client_name}</p>
@@ -50,7 +54,7 @@ export function ProofPage() {
   </section>
 }
 
-function NewProject({ done, fail }: { done: () => void; fail: (message: string) => void }) {
+function NewProject({ done, fail }: { done: () => void; fail: (message: string, upgrade?: boolean) => void }) {
   const [form, setForm] = useState({ name: '', clientName: '', clientEmail: '', description: '' })
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -58,10 +62,10 @@ function NewProject({ done, fail }: { done: () => void; fail: (message: string) 
       await api('/api/proof/projects', { method: 'POST', body: JSON.stringify(form) })
       setForm({ name: '', clientName: '', clientEmail: '', description: '' })
       done()
-    } catch (error) { fail(error instanceof Error ? error.message : 'Could not create project') }
+    } catch (error) { fail(error instanceof Error ? error.message : 'Could not create gallery', (error as { upgrade?: boolean }).upgrade) }
   }
   return <form onSubmit={submit} className="mt-6 rounded-2xl border bg-white p-5">
-    <h2 className="text-xl font-black">New project</h2>
+    <h2 className="text-xl font-black">New client gallery</h2>
     <Input name="Project name" value={form.name} set={(name) => setForm({ ...form, name })} />
     <Input name="Client name" value={form.clientName} set={(clientName) => setForm({ ...form, clientName })} />
     <Input name="Client email" value={form.clientEmail} set={(clientEmail) => setForm({ ...form, clientEmail })} />
@@ -74,6 +78,7 @@ function ProjectDetail({ project, onBack }: { project: Project; onBack: () => vo
   const [current, setCurrent] = useState(project)
   const [note, setNote] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [newLink, setNewLink] = useState('')
   const [links, setLinks] = useState<Link[]>([])
   const [feedback, setFeedback] = useState<Feedback>({ comments: [], favorites: [], revisions: [], approvals: [] })
@@ -83,9 +88,7 @@ function ProjectDetail({ project, onBack }: { project: Project; onBack: () => vo
 
   useEffect(() => { loadLinks(); loadFeedback() }, [current.id])
 
-  async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0]
-    if (!file) return
+  async function upload(file: File) {
     if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) || file.size > 5 * 1024 * 1024) {
       setNote('Use JPEG, PNG, WebP, or PDF up to 5 MB.')
       return
@@ -102,7 +105,7 @@ function ProjectDetail({ project, onBack }: { project: Project; onBack: () => vo
       await refresh()
       setNote('File uploaded.')
     } catch (error) { setNote(error instanceof Error ? error.message : 'Upload failed.')
-    } finally { setUploading(false); event.currentTarget.value = '' }
+    } finally { setUploading(false); setSelectedFile(null) }
   }
 
   async function save(event: FormEvent) {
@@ -113,8 +116,16 @@ function ProjectDetail({ project, onBack }: { project: Project; onBack: () => vo
     } catch (error) { setNote(error instanceof Error ? error.message : 'Could not save project') }
   }
 
+  async function archive() {
+    if (!window.confirm('Archive this gallery? Its review links will stop working and the slot is freed for a new client.')) return
+    try {
+      await fetch(`/api/proof/projects/${current.id}/archive`, { method: 'POST', credentials: 'include' }).then((response) => { if (!response.ok) throw Error('Could not archive gallery.') })
+      onBack()
+    } catch (error) { setNote(error instanceof Error ? error.message : 'Could not archive gallery.') }
+  }
+
   return <section className="mx-auto max-w-5xl px-5 py-8">
-    <button onClick={onBack} className="text-sm font-bold text-emerald-700">← Projects</button>
+    <button onClick={onBack} className="text-sm font-bold text-emerald-700">← All galleries</button>
     <h1 className="mt-3 text-3xl font-black">{current.name}</h1>
     {note && <Notice text={note} />}
     <form onSubmit={save} className="mt-6 rounded-2xl border bg-white p-5">
@@ -125,16 +136,18 @@ function ProjectDetail({ project, onBack }: { project: Project; onBack: () => vo
       <Input name="Description" value={current.description} set={(description) => setCurrent({ ...current, description })} />
       <button className="mt-4 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Save details</button>
     </form>
-    <Deliverables project={current} uploading={uploading} upload={upload} refresh={refresh} note={setNote} feedback={feedback} />
+    <Deliverables project={current} uploading={uploading} selectedFile={selectedFile} setSelectedFile={setSelectedFile} upload={upload} refresh={refresh} note={setNote} feedback={feedback} />
     <FeedbackPanel feedback={feedback} reload={loadFeedback} note={setNote} />
-    <ReviewLinks projectId={current.id} links={links} reload={loadLinks} newLink={newLink} setNewLink={setNewLink} note={setNote} />
+    <ReviewLinks projectId={current.id} hasDeliverables={Boolean(current.deliverables?.length)} links={links} reload={loadLinks} newLink={newLink} setNewLink={setNewLink} note={setNote} />
+    <section className="mt-6 rounded-2xl border border-dashed bg-white p-5"><h2 className="font-black">Finished with this client?</h2><p className="mt-1 text-sm text-slate-600">Archiving stops the review links and frees a gallery slot on your plan.</p><button type="button" onClick={() => void archive()} className="mt-3 rounded-lg border border-rose-300 px-4 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50">Archive gallery</button></section>
   </section>
 }
 
-function Deliverables({ project, uploading, upload, refresh, note, feedback }: { project: Project; uploading: boolean; upload: (event: ChangeEvent<HTMLInputElement>) => void; refresh: () => Promise<void>; note: (message: string) => void; feedback: Feedback }) {
+function Deliverables({ project, uploading, selectedFile, setSelectedFile, upload, refresh, note, feedback }: { project: Project; uploading: boolean; selectedFile: File | null; setSelectedFile: (file: File | null) => void; upload: (file: File) => Promise<void>; refresh: () => Promise<void>; note: (message: string) => void; feedback: Feedback }) {
   const [replacing, setReplacing] = useState('')
   async function replacement(deliverableId: string, event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0]
+    const input = event.currentTarget
+    const file = input.files?.[0]
     if (!file) return
     if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) || file.size > 5 * 1024 * 1024) return note('Use JPEG, PNG, WebP, or PDF up to 5 MB.')
     setReplacing(deliverableId)
@@ -144,13 +157,19 @@ function Deliverables({ project, uploading, upload, refresh, note, feedback }: {
       await refresh()
       note('New version uploaded.')
     } catch (error) { note(error instanceof Error ? error.message : 'Could not upload new version.')
-    } finally { setReplacing(''); event.currentTarget.value = '' }
+    } finally { setReplacing(''); input.value = '' }
   }
   return <section className="mt-6 rounded-2xl border bg-white p-5">
     <h2 className="text-xl font-black">Deliverables</h2>
     <p className="mt-1 text-sm text-slate-600">JPEG, PNG, WebP, or PDF; maximum 5 MB. Upload a new version to preserve earlier files and feedback.</p>
-    <input className="mt-4 text-sm" type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={upload} />
-    {uploading && <p className="mt-2 text-sm">Uploading…</p>}
+    <div className="mt-4 flex flex-wrap items-center gap-3">
+      <label className="inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold hover:border-emerald-600 hover:text-emerald-700">
+        <input className="sr-only" type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => { const file = event.currentTarget.files?.[0] ?? null; setSelectedFile(file); event.currentTarget.value = '' }} />
+        Choose file
+      </label>
+      {selectedFile ? <span className="max-w-full truncate text-sm text-slate-700">{selectedFile.name} · {(selectedFile.size / 1024 / 1024).toFixed(2)} MB</span> : <span className="text-sm text-slate-500">No file selected</span>}
+      <button type="button" disabled={!selectedFile || uploading} onClick={() => selectedFile && void upload(selectedFile)} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{uploading ? 'Uploading…' : 'Upload file'}</button>
+    </div>
     <div className="mt-4 space-y-3">
       {project.deliverables?.map((deliverable: any) => <article key={deliverable.id} className="rounded-lg border p-3">
         <b>{deliverable.name}</b><span className="float-right text-sm">Current: Version {deliverable.versions[0]?.number}</span>
@@ -193,7 +212,7 @@ function FeedbackGroup({ title, empty, children }: { title: string; empty: strin
   return <div><h3 className="font-bold">{title}</h3><div className="mt-3 space-y-2">{items.length ? items : <p className="text-sm text-slate-500">{empty}</p>}</div></div>
 }
 
-function ReviewLinks({ projectId, links, reload, newLink, setNewLink, note }: { projectId: string; links: Link[]; reload: () => void; newLink: string; setNewLink: (value: string) => void; note: (message: string) => void }) {
+function ReviewLinks({ projectId, hasDeliverables, links, reload, newLink, setNewLink, note }: { projectId: string; hasDeliverables: boolean; links: Link[]; reload: () => void; newLink: string; setNewLink: (value: string) => void; note: (message: string) => void }) {
   const [busy, setBusy] = useState('')
   async function make() {
     setBusy('new')
@@ -213,7 +232,8 @@ function ReviewLinks({ projectId, links, reload, newLink, setNewLink, note }: { 
   }
   return <section className="mt-6 rounded-2xl border bg-white p-5">
     <h2 className="text-xl font-black">Review links</h2><p className="text-sm text-slate-600">Tokens are only shown once when created.</p>
-    <button onClick={make} disabled={busy === 'new'} className="mt-3 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">{busy === 'new' ? 'Generating…' : 'Generate review link'}</button>
+    {!hasDeliverables && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Upload at least one image or PDF before creating a client review link.</p>}
+    <button onClick={make} disabled={busy === 'new' || !hasDeliverables} className="mt-3 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy === 'new' ? 'Generating…' : 'Generate review link'}</button>
     {newLink && <div className="mt-3 break-all rounded-lg bg-slate-50 p-3 text-sm">{newLink}<button onClick={() => navigator.clipboard?.writeText(newLink)} className="ml-3 font-bold text-emerald-700">Copy</button></div>}
     <div className="mt-4 space-y-3">{links.map((link) => { const status = reviewLinkState(link); return <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm" key={link.id}><span>Created {new Date(link.created_at).toLocaleString()} · {link.expires_at ? `Expires ${new Date(link.expires_at).toLocaleString()}` : 'No expiry'} · <b>{status}</b></span>{status === 'Active' && <button disabled={busy === link.id} onClick={() => revoke(link.id)} className="font-bold text-rose-600">{busy === link.id ? 'Revoking…' : 'Revoke'}</button>}</div> })}</div>
   </section>

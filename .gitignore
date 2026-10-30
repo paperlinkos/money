@@ -7,3 +7,6 @@ dist
 apps/web/public/robots.txt
 apps/web/public/sitemap.xml
 artifacts/
+
+.firecrawl/
+apps/web/test-results/

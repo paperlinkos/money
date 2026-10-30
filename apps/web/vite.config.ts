@@ -11,7 +11,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/api': 'http://localhost:3001',
+      '/api': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:3001',
     },
+  },
+  test: {
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
   },
 })
