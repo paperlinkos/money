@@ -4,7 +4,7 @@ const seeded = (): GearData => {
   const camera = 'gear-camera'; const lens = 'gear-lens'; const light = 'gear-light'; const listingCamera = 'listing-camera'; const listingLight = 'listing-light'
   return {
     version: 1,
-    settings: { owner: 'Northstar Creative Studio', whatsapp: '2348012345678', pickup: 'Pickup in Abuja. Delivery can be arranged.', terms: 'A valid ID and refundable security deposit may be required.' },
+    settings: { owner: 'Your Studio', whatsapp: '2348012345678', pickup: 'Pickup in Abuja. Delivery can be arranged.', terms: 'A valid ID and refundable security deposit may be required.' },
     gear: [
       { id: camera, name: 'Sony A7 III Camera', category: 'Cameras', brand: 'Sony', model: 'A7 III', quantity: 2, serials: ['A7-001', 'A7-002'], location: 'Main camera case', condition: 'Good', ownership: 'Owned', available: true, notes: '' },
       { id: lens, name: '24–70mm f/2.8 Lens', category: 'Lenses', brand: 'Sigma', model: '24–70mm Art', quantity: 2, serials: [], location: 'Lens pouch', condition: 'Good', ownership: 'Owned', available: true, notes: '' },
