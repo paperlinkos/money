@@ -8,6 +8,8 @@ import { billingRoutes } from './modules/billing/routes.js'
 
 const app = express()
 app.disable('x-powered-by')
+// nginx runs on this machine, so rate limits must key on the visitor it reports rather than on nginx.
+app.set('trust proxy', 'loopback')
 // Paystack signs the exact request bytes, so keep them for webhook verification.
 app.use(express.json({ limit: '8mb', verify: (request, _response, buffer) => { (request as typeof request & { rawBody?: Buffer }).rawBody = buffer } }))
 const webOrigin = config.webOrigin
@@ -39,6 +41,6 @@ app.use((_request, response) => {
   response.status(404).json({ error: 'Not found' })
 })
 
-app.listen(config.port, () => {
+app.listen(config.port, config.host, () => {
   console.log(`API listening on http://localhost:${config.port}`)
 })

@@ -1,5 +1,6 @@
 export const config = {
   port: Number(process.env.PORT ?? 3001),
+  host: process.env.HOST ?? '::',
   databaseUrl: process.env.DATABASE_URL,
   sessionSecret: process.env.SESSION_SECRET,
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
