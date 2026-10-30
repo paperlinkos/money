@@ -168,7 +168,7 @@ function Protection({ project, refresh, note, feedback }: { project: Project; re
     void saveSettings(enabled, enabled ? 'Protection is on. Clients now see watermarked previews.' : 'Protection is off. Clients now see your original images.')
   }
   function release() {
-    const warning = approved ? 'Release the originals? Your client will be able to download the full-quality images.' : 'Your client has not approved every image yet. Release the originals anyway?'
+    const warning = approved || !project.paidFeatures ? 'Release the originals? Your client will be able to download the full-quality images.' : 'Your client has not approved every image yet. Release the originals anyway?'
     if (window.confirm(warning)) void setReleased(true, 'Originals released. Your client can now download them from the review link.')
   }
 
@@ -229,7 +229,9 @@ function Deliverables({ project, uploading, selectedFile, setSelectedFile, uploa
         <b>{deliverable.name}</b><span className="float-right text-sm">Current: Version {deliverable.versions[0]?.number}</span>
         <a href={`/api/proof/files/${deliverable.versions[0]?.id}`} target="_blank" rel="noreferrer" className="mt-3 block text-sm font-bold text-emerald-700">Preview / download current version</a>
         {project.protected_preview && deliverable.versions[0]?.type.startsWith('image/') && <a href={`/api/proof/files/${deliverable.versions[0].id}/preview`} target="_blank" rel="noreferrer" className="mt-2 block text-sm font-bold text-emerald-700">See what your client sees</a>}
-        <label className="mt-3 block text-sm font-bold text-emerald-700">{replacing === deliverable.id ? 'Uploading new version…' : 'Upload new version'}<input className="mt-1 block text-sm font-normal text-slate-700" type="file" disabled={replacing !== ''} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => replacement(deliverable.id, event)} /></label>
+        {project.paidFeatures
+          ? <label className="mt-3 block text-sm font-bold text-emerald-700">{replacing === deliverable.id ? 'Uploading new version…' : 'Upload new version'}<input className="mt-1 block text-sm font-normal text-slate-700" type="file" disabled={replacing !== ''} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => replacement(deliverable.id, event)} /></label>
+          : <p className="mt-3 text-sm text-slate-600">New versions and client approvals are part of Pro and Studio. <a href="/pricing" className="font-bold text-emerald-700">See plans</a></p>}
         <p className="mt-3 text-sm font-bold">Version history</p>
         <div className="mt-2 space-y-2">{deliverable.versions.map((version: any, index: number) => <div key={version.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-50 p-2 text-sm"><span>Version {version.number} · {version.name} {index === 0 ? '· Current' : '· Superseded'}</span><a href={`/api/proof/files/${version.id}`} target="_blank" rel="noreferrer" className="font-bold text-emerald-700">Open</a></div>)}</div>
         <p className="mt-3 text-sm text-slate-600">{feedback.approvals.some((approval) => approval.version_id === deliverable.versions[0]?.id && approval.current) ? 'Approved by at least one client' : feedback.revisions.some((revision) => revision.version_id === deliverable.versions[0]?.id && revision.status === 'Open') ? 'Changes requested' : 'Awaiting review'}</p>

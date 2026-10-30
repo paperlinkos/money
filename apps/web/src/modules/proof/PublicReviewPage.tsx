@@ -59,13 +59,13 @@ export function PublicReviewPage({ token }: { token: string }) {
       <button disabled={settingName} className="mt-3 rounded bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{settingName ? 'Saving…' : 'Continue'}</button>
     </form>}
     <section className="mt-8 space-y-5">
-      {data.deliverables.map((deliverable: any) => <PublicDeliverable key={deliverable.version.id} deliverable={deliverable} token={token} feedback={feedback} refresh={load} />)}
+      {data.deliverables.map((deliverable: any) => <PublicDeliverable approvalsEnabled={Boolean(data.approvalsEnabled)} key={deliverable.version.id} deliverable={deliverable} token={token} feedback={feedback} refresh={load} />)}
     </section>
     </>}
   </main>
 }
 
-function PublicDeliverable({ deliverable, token, feedback, refresh }: { deliverable: any; token: string; feedback: Feedback; refresh: () => void }) {
+function PublicDeliverable({ deliverable, token, feedback, refresh, approvalsEnabled }: { deliverable: any; token: string; feedback: Feedback; refresh: () => void; approvalsEnabled: boolean }) {
   const [favoriteError, setFavoriteError] = useState('')
   const [favoriteBusy, setFavoriteBusy] = useState(false)
   const [approvalBusy, setApprovalBusy] = useState(false)
@@ -111,7 +111,7 @@ function PublicDeliverable({ deliverable, token, feedback, refresh }: { delivera
         ? <a href={version.previewOnly ? `${source}/original` : source} download={version.name} className="text-sm font-bold text-emerald-700">{version.previewOnly ? 'Download original' : 'Download file'}</a>
         : <p className="mb-2 text-sm text-slate-600">This is a watermarked preview. The full-quality file can be downloaded here once the creator releases it.</p>}
       {isImage && feedback.participant && <button onClick={toggleFavorite} disabled={favoriteBusy} className="ml-4 text-sm font-bold text-emerald-700 disabled:opacity-60">{favoriteBusy ? 'Saving…' : selected ? 'Remove favorite' : 'Favorite image'}</button>}
-      {feedback.participant && <button onClick={approve} disabled={approvalBusy || approved} className="ml-4 text-sm font-bold text-emerald-700 disabled:opacity-60">{approvalBusy ? 'Saving…' : approved ? 'Approved' : `Approve Version ${version.number}`}</button>}
+      {approvalsEnabled && feedback.participant && <button onClick={approve} disabled={approvalBusy || approved} className="ml-4 text-sm font-bold text-emerald-700 disabled:opacity-60">{approvalBusy ? 'Saving…' : approved ? 'Approved' : `Approve Version ${version.number}`}</button>}
       {favoriteError && <p className="mt-2 text-sm text-rose-700">{favoriteError}</p>}
       {approvalNotice && <p className="mt-2 text-sm text-emerald-700">{approvalNotice}</p>}
       <FeedbackForms token={token} versionId={version.id} ready={Boolean(feedback.participant)} comments={comments} refresh={refresh} />

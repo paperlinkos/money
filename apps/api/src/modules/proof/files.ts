@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Express, Request, Response } from 'express'
 import { requireDb } from '../../core/db.js'
+import { hasPaidFeatures } from '../../core/plans.js'
 import { renderPreview, watermarkSql } from './preview.js'
 
 const root = resolve(process.cwd(), process.env.PROOF_UPLOAD_DIR ?? 'private-uploads/proof')
@@ -130,6 +131,7 @@ export function proofFileRoutes(app: Express) {
   }))
 
   app.post('/api/proof/deliverables/:id/versions', auth(async (request, response, userId) => {
+    if (!await hasPaidFeatures(userId)) return void response.status(402).json({ error: 'New versions of a file are part of Pro and Studio. Upgrade, or upload this as a new file.', upgrade: true })
     let file: ReturnType<typeof incomingFile>
     try { file = incomingFile(request) } catch (error) { return void response.status(400).json({ error: error instanceof Error ? error.message : 'Invalid upload.' }) }
     const project = (await requireDb().query(`select p.protected_preview,${watermarkSql} watermark from proof_deliverables d join proof_projects p on p.id=d.project_id left join booking_businesses b on b.user_id=p.owner_id where d.id=$1 and p.owner_id=$2`, [request.params.id, userId])).rows[0]

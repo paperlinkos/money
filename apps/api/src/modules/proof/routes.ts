@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { Express, Request, Response } from 'express'
 import { requireDb } from '../../core/db.js'
-import { accountPlan } from '../../core/plans.js'
+import { accountPlan, hasPaidFeatures } from '../../core/plans.js'
 import { warmPreviews } from './files.js'
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -51,7 +51,7 @@ export function proofRoutes(app: Express) {
       grouped[version.deliverable_id] = current
       return grouped
     }, {} as Record<string, any>))
-    response.json({ ...project, deliverables })
+    response.json({ ...project, deliverables, paidFeatures: await hasPaidFeatures(userId) })
   }))
 
   app.patch('/api/proof/projects/:id', auth(async (request, response, userId) => {
@@ -103,12 +103,13 @@ export function proofRoutes(app: Express) {
 
   app.get('/api/public/review/:token', async (request, response) => {
     const rows = (await requireDb().query(
-      "select p.name,p.client_name,p.description,p.due_date,p.protected_preview,(p.originals_released_at is not null and v.created_at<=p.originals_released_at) original_released,d.id deliverable_id,d.name deliverable_name,v.id version_id,v.version_number,v.original_name,v.mime_type,v.size_bytes from proof_review_links l join proof_projects p on p.id=l.project_id left join proof_deliverables d on d.project_id=p.id left join lateral (select * from proof_versions where deliverable_id=d.id order by version_number desc limit 1) v on true where l.token_hash=$1 and l.revoked_at is null and (l.expires_at is null or l.expires_at>now())",
+      "select p.owner_id,p.name,p.client_name,p.description,p.due_date,p.protected_preview,(p.originals_released_at is not null and v.created_at<=p.originals_released_at) original_released,d.id deliverable_id,d.name deliverable_name,v.id version_id,v.version_number,v.original_name,v.mime_type,v.size_bytes from proof_review_links l join proof_projects p on p.id=l.project_id left join proof_deliverables d on d.project_id=p.id left join lateral (select * from proof_versions where deliverable_id=d.id order by version_number desc limit 1) v on true where l.token_hash=$1 and l.revoked_at is null and (l.expires_at is null or l.expires_at>now())",
       [hash(request.params.token)],
     )).rows
     if (!rows.length) return void response.status(404).json({ error: 'This review link is invalid, expired, or revoked.' })
     response.json({
       project: { name: rows[0].name, clientName: rows[0].client_name, description: rows[0].description, dueDate: rows[0].due_date },
+      approvalsEnabled: await hasPaidFeatures(rows[0].owner_id),
       deliverables: rows.filter((row) => row.version_id).map((row) => {
         const previewOnly = row.protected_preview && row.mime_type.startsWith('image/')
         return { id: row.deliverable_id, name: row.deliverable_name, version: { id: row.version_id, number: row.version_number, name: row.original_name, type: row.mime_type, size: row.size_bytes, previewOnly, originalAvailable: !previewOnly || row.original_released } }

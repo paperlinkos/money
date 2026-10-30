@@ -14,6 +14,9 @@ const graceDays = 3
 
 export type AccountPlan = { plan: PlanId; status: string | null; currentPeriodEnd: string | null; galleryCredits: number; galleryAllowance: number }
 
+// Version history and client approvals. A gallery pass adds galleries but does not unlock these.
+export const hasPaidFeatures = async (userId: string) => (await accountPlan(userId)).plan !== 'free'
+
 export async function accountPlan(userId: string): Promise<AccountPlan> {
   const row = (await requireDb().query(
     `select s.plan, s.status, s.current_period_end, coalesce(c.gallery_credits, 0) gallery_credits,

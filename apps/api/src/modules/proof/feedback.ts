@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { Express, Request, Response } from 'express'
 import type { Pool, PoolClient } from 'pg'
 import { requireDb } from '../../core/db.js'
+import { hasPaidFeatures } from '../../core/plans.js'
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const text = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) : ''
@@ -124,6 +125,8 @@ export function proofFeedbackRoutes(app: Express) {
     const versionId = text(request.body?.versionId, 80)
     if (limited(request)) return void response.status(429).json({ error: 'Please wait before submitting another response.' })
     if (!link || !reviewParticipant || !versionId || request.body?.confirmed !== true) return void response.status(400).json({ error: 'Confirm the current file version before approving it.' })
+    const owner = (await requireDb().query('select owner_id from proof_projects where id=$1', [link.project_id])).rows[0].owner_id
+    if (!await hasPaidFeatures(owner)) return void response.status(403).json({ error: 'Approvals are not available for this gallery.' })
     const client = await requireDb().connect()
     try {
       await client.query('begin')

@@ -35,7 +35,14 @@ async function register(label) {
   const result = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email: `${id}@test.local`, password: 'safe-password-123', businessName: label, slug: id }) }, session)
   assert.equal(result.response.status, 201)
   assert.match(session.cookie, /^northstar_session=/)
+  session.email = `${id}@test.local`
   return session
+}
+async function makePaid(session) {
+  const db = new pg.Client({ connectionString: databaseUrl })
+  await db.connect()
+  await db.query("insert into billing_subscriptions(user_id,plan,status,current_period_end) select id,'pro','active',now()+interval '30 days' from platform_users where email=$1", [session.email])
+  await db.end()
 }
 async function project(session, name) {
   const result = await request('/api/proof/projects', { method: 'POST', body: JSON.stringify({ name, clientName: 'Client' }) }, session)
@@ -57,6 +64,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 500))
   assert.equal((await request('/api/health')).response.status, 200)
   const creator = await register('proof-owner')
+  await makePaid(creator)
   const otherCreator = await register('proof-other')
   const ownedProject = await project(creator, 'Owner project')
   const otherProject = await project(otherCreator, 'Other project')
@@ -119,8 +127,25 @@ try {
   const expired = await reviewLink(creator, ownedProject.id, '2000-01-01T00:00:00.000Z')
   assert.equal((await request(`/api/public/review/${expired}`)).response.status, 404, 'expired token blocked')
 
+  // Free plans keep comments and favourites; new versions and approvals need Pro or Studio.
+  const freeCreator = await register('proof-free')
+  const freeProject = await project(freeCreator, 'Free gallery')
+  const freeFile = await upload(freeCreator, freeProject.id)
+  assert.equal((await request(`/api/proof/projects/${freeProject.id}`, {}, freeCreator)).body.paidFeatures, false)
+  const blockedVersion = await request(`/api/proof/deliverables/${freeFile.deliverableId}/versions`, { method: 'POST', body: JSON.stringify({ name: 'v2.png', data: png }) }, freeCreator)
+  assert.equal(blockedVersion.response.status, 402, 'free plans cannot add versions')
+  assert.equal(blockedVersion.body.upgrade, true)
+  const freeToken = await reviewLink(freeCreator, freeProject.id)
+  assert.equal((await request(`/api/public/review/${freeToken}`)).body.approvalsEnabled, false)
+  const freeClient = jar()
+  assert.equal((await request(`/api/public/review/${freeToken}/participant`, { method: 'POST', body: JSON.stringify({ name: 'Free Client' }) }, freeClient)).response.status, 200)
+  assert.equal((await request(`/api/public/review/${freeToken}/approvals`, { method: 'POST', body: JSON.stringify({ versionId: freeFile.id, confirmed: true }) }, freeClient)).response.status, 403, 'free plans cannot collect approvals')
+  assert.equal((await request(`/api/public/review/${freeToken}/comments`, { method: 'POST', body: JSON.stringify({ versionId: freeFile.id, body: 'Lovely' }) }, freeClient)).response.status, 201, 'free plans keep comments')
+  assert.equal((await request(`/api/public/review/${freeToken}/favorites/${freeFile.id}`, { method: 'PUT' }, freeClient)).response.status, 204, 'free plans keep favourites')
+
   // Protected previews: a public link never gets the original until the creator releases it.
   const studio = await register('ada-studio')
+  await makePaid(studio)
   const gallery = await project(studio, 'Protected gallery')
   assert.equal(gallery.protected_preview, true, 'new galleries start protected')
   const db = new pg.Client({ connectionString: databaseUrl })
@@ -143,6 +168,7 @@ try {
   const galleryToken = await reviewLink(studio, gallery.id)
   const shared = `/api/public/review/${galleryToken}/files/${uploaded.body.id}`
   const listing = await request(`/api/public/review/${galleryToken}`)
+  assert.equal(listing.body.approvalsEnabled, true, 'paid plans collect approvals')
   const listed = listing.body.deliverables.find((item) => item.version.id === uploaded.body.id).version
   assert.deepEqual([listed.previewOnly, listed.originalAvailable], [true, false])
   assert.ok(!JSON.stringify(listing.body).includes('storage_name'), 'public listing hides storage names')
