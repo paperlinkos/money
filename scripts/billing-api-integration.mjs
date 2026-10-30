@@ -14,11 +14,12 @@ const secret = 'sk_test_billing_integration'
 const plans = { PAYSTACK_PLAN_PRO: 'PLN_test_pro', PAYSTACK_PLAN_STUDIO: 'PLN_test_studio' }
 // Stands in for Paystack's verify endpoint, so no test ever reaches the real API.
 const verifyStatuses = new Map()
+const nextPaymentDates = new Map()
 const paystackPort = port + 1
 const fakePaystack = createServer((request, response) => {
   const reference = decodeURIComponent(request.url.split('/').pop())
   response.setHeader('Content-Type', 'application/json')
-  response.end(JSON.stringify({ status: true, data: { reference, status: verifyStatuses.get(reference), amount: 250000, currency: 'NGN' } }))
+  response.end(JSON.stringify({ status: true, data: { reference, status: verifyStatuses.get(reference), amount: 250000, currency: 'NGN', next_payment_date: nextPaymentDates.get(reference) } }))
 }).listen(paystackPort, '127.0.0.1')
 const server = spawn('node', ['apps/api/dist/server.js'], {
   cwd: process.cwd(),
@@ -112,13 +113,26 @@ try {
   assert.equal(await webhook({ event: 'subscription.disable', data: { subscription_code: 'SUB_pro' } }), 200)
   assert.equal((await me(pro)).plan, 'free')
 
-  // subscription.create can arrive before the first charge; the customer still gets one month.
+  // subscription.create can arrive before the first charge; the end date stays on Paystack's next charge.
   const early = await register('billing-early')
-  const nextPayment = new Date(Date.now() + 30 * 86_400_000).toISOString()
+  const nextPayment = new Date(Date.now() + 28 * 86_400_000).toISOString()
   await db.query("insert into billing_payments(reference,user_id,kind,plan,amount_kobo) values('pl_early_1',$1,'subscription','pro',500000)", [early.userId])
   assert.equal(await webhook({ event: 'subscription.create', data: { subscription_code: 'SUB_early', email_token: 'tok', next_payment_date: nextPayment, plan: { plan_code: plans.PAYSTACK_PLAN_PRO }, customer: { customer_code: 'CUS_early', email: early.email } } }), 200)
   assert.equal(await webhook({ event: 'charge.success', data: { reference: 'pl_early_1', status: 'success', amount: 500000, currency: 'NGN', plan: { plan_code: plans.PAYSTACK_PLAN_PRO }, customer: { customer_code: 'CUS_early', email: early.email } } }), 200)
-  assert.ok(new Date((await me(early)).currentPeriodEnd).getTime() < Date.now() + 32 * 86_400_000)
+  assert.equal((await me(early)).currentPeriodEnd, nextPayment)
+
+  // subscription.create arriving after the charge moves the end date to Paystack's, even if earlier.
+  const late = await register('billing-late')
+  await db.query("insert into billing_payments(reference,user_id,kind,plan,amount_kobo) values('pl_late_1',$1,'subscription','pro',500000)", [late.userId])
+  assert.equal(await webhook({ event: 'charge.success', data: { reference: 'pl_late_1', status: 'success', amount: 500000, currency: 'NGN', plan: { plan_code: plans.PAYSTACK_PLAN_PRO }, customer: { customer_code: 'CUS_late', email: late.email } } }), 200)
+  assert.equal(await webhook({ event: 'subscription.create', data: { subscription_code: 'SUB_late', email_token: 'tok', next_payment_date: nextPayment, plan: { plan_code: plans.PAYSTACK_PLAN_PRO }, customer: { customer_code: 'CUS_late', email: late.email } } }), 200)
+  assert.equal((await me(late)).currentPeriodEnd, nextPayment)
+
+  // A renewal follows Paystack's next charge date when Paystack provides one.
+  const nextRenewal = new Date(Date.now() + 56 * 86_400_000).toISOString()
+  nextPaymentDates.set('SUB_early', nextRenewal)
+  assert.equal(await webhook({ event: 'charge.success', data: { reference: 'T_early_renewal', status: 'success', amount: 500000, currency: 'NGN', plan: { plan_code: plans.PAYSTACK_PLAN_PRO }, customer: { customer_code: 'CUS_early', email: early.email } } }), 200)
+  assert.equal((await me(early)).currentPeriodEnd, nextRenewal)
 
   // A failed payment is reported as failed, and still counts if the retry succeeds.
   const declined = await register('billing-declined')

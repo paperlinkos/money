@@ -61,7 +61,7 @@ async function settle(charge: Charge) {
       await client.query(
         `insert into billing_subscriptions(user_id,plan,status,paystack_customer_code,current_period_end) values($1,$2,'active',$3,now()+interval '1 month')
          on conflict (user_id) do update set status='active', paystack_customer_code=coalesce(excluded.paystack_customer_code,billing_subscriptions.paystack_customer_code),
-           current_period_end=case when billing_subscriptions.plan=excluded.plan then greatest(billing_subscriptions.current_period_end,now()+interval '1 month') else now()+interval '1 month' end,
+           current_period_end=case when billing_subscriptions.plan=excluded.plan and billing_subscriptions.current_period_end>now() then billing_subscriptions.current_period_end else now()+interval '1 month' end,
            plan=excluded.plan, updated_at=now()`,
         [payment.user_id, payment.plan, charge.customer?.customer_code ?? null],
       )
@@ -74,12 +74,20 @@ async function settle(charge: Charge) {
 async function renew(charge: Charge) {
   const plan = planForCode(typeof charge.plan === 'string' ? charge.plan : charge.plan?.plan_code)
   if (!plan || charge.status !== 'success' || !charge.customer?.customer_code) return
-  await tx(async (client) => {
-    const owner = (await client.query('select user_id from billing_subscriptions where paystack_customer_code=$1 and plan=$2', [charge.customer?.customer_code, plan])).rows[0]
+  const renewed = await tx(async (client) => {
+    const owner = (await client.query('select user_id,paystack_subscription_code from billing_subscriptions where paystack_customer_code=$1 and plan=$2', [charge.customer?.customer_code, plan])).rows[0]
     if (!owner) return
     const inserted = await client.query("insert into billing_payments(reference,user_id,kind,plan,amount_kobo,status,paid_at) values($1,$2,'renewal',$3,$4,'success',now()) on conflict do nothing", [charge.reference, owner.user_id, plan, charge.amount])
-    if (inserted.rowCount) await client.query("update billing_subscriptions set status='active',current_period_end=greatest(current_period_end,now())+interval '1 month',updated_at=now() where user_id=$1", [owner.user_id])
+    if (!inserted.rowCount) return
+    await client.query("update billing_subscriptions set status='active',current_period_end=greatest(current_period_end,now())+interval '1 month',updated_at=now() where user_id=$1", [owner.user_id])
+    return owner as { user_id: string; paystack_subscription_code: string | null }
   })
+  // Access is already extended above; this only lines the end date up with Paystack's next charge.
+  if (renewed?.paystack_subscription_code) {
+    await paystack<{ next_payment_date?: string }>(`/subscription/${renewed.paystack_subscription_code}`)
+      .then(({ next_payment_date: next }) => next ? requireDb().query('update billing_subscriptions set current_period_end=$1::timestamptz where user_id=$2 and $1::timestamptz>now()', [next, renewed.user_id]) : undefined)
+      .catch((error) => console.error('Could not read next payment date', error))
+  }
 }
 
 async function subscriptionCreated(data: { subscription_code: string; email_token: string; next_payment_date?: string; customer?: { customer_code?: string; email?: string }; plan?: { plan_code?: string } }) {
@@ -93,7 +101,7 @@ async function subscriptionCreated(data: { subscription_code: string; email_toke
        values($1,$2,'active',$3,$4,$5,coalesce($6::timestamptz,now()+interval '1 month'))
      on conflict (user_id) do update set plan=excluded.plan, status='active', paystack_customer_code=excluded.paystack_customer_code,
        paystack_subscription_code=excluded.paystack_subscription_code, paystack_email_token=excluded.paystack_email_token,
-       current_period_end=greatest(billing_subscriptions.current_period_end,excluded.current_period_end), updated_at=now()`,
+       current_period_end=coalesce($6::timestamptz,billing_subscriptions.current_period_end), updated_at=now()`,
     [owner.id, plan, data.customer?.customer_code ?? null, data.subscription_code, data.email_token, data.next_payment_date ?? null],
   )
   // A plan change creates a second Paystack subscription; stop the old one so the customer is not billed twice.
