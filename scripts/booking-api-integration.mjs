@@ -14,7 +14,7 @@ async function request(path, options = {}, jar = true) {
   return { response, body }
 }
 try {
-  await new Promise(resolve => setTimeout(resolve, 500))
+  for (let tries = 0; tries < 100; tries++) { if (await fetch(`${base}/api/health`).then((r) => r.ok).catch(() => false)) break; await new Promise((resolve) => setTimeout(resolve, 100)) }
   assert.equal((await request('/api/health')).response.status, 200)
   const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`
   let result = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email: `provider-${id}@test.local`, password: 'safe-password-123', businessName: 'Test Studio', slug: `studio-${id}` }) })

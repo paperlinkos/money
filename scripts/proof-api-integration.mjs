@@ -62,7 +62,7 @@ async function reviewLink(session, projectId, expiresAt = undefined) {
 }
 
 try {
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  for (let tries = 0; tries < 100; tries++) { if (await fetch(`${base}/api/health`).then((r) => r.ok).catch(() => false)) break; await new Promise((resolve) => setTimeout(resolve, 100)) }
   assert.equal((await request('/api/health')).response.status, 200)
   const creator = await register('proof-owner')
   await makePaid(creator)
@@ -153,6 +153,20 @@ try {
   assert.equal((await fetch(`${base}/api/proof/projects/${freeProject.id}/files`, { method: 'POST', body: JSON.stringify({ data: 'x'.repeat(9 * 1024 * 1024) }), headers: { Origin: origin, 'Content-Type': 'application/json' } })).status, 413, 'strangers cannot send large bodies')
   const overLimit = JSON.stringify({ name: 'huge.jpg', data: `data:image/jpeg;base64,${Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(20.5 * 1024 * 1024)]).toString('base64')}` })
   assert.equal((await request(`/api/proof/projects/${freeProject.id}/files`, { method: 'POST', body: overLimit }, freeCreator)).response.status, 400, 'files over 20 MB are refused')
+
+  // Deleting a gallery removes its files and frees storage; only the owner can do it.
+  const deleteCreator = await register('proof-delete')
+  const doomed = await project(deleteCreator, 'Doomed gallery')
+  const doomedFile = await upload(deleteCreator, doomed.id)
+  const doomedToken = await reviewLink(deleteCreator, doomed.id)
+  assert.equal((await request(`/api/proof/projects/${doomed.id}`, { method: 'DELETE' }, freeCreator)).response.status, 404, 'only the owner can delete')
+  assert.equal((await request(`/api/proof/projects/${doomed.id}/archive`, { method: 'POST' }, deleteCreator)).response.status, 204)
+  assert.deepEqual((await request('/api/proof/projects/archived', {}, deleteCreator)).body.map((row) => row.id), [doomed.id])
+  assert.equal((await request(`/api/proof/projects/${doomed.id}`, { method: 'DELETE' }, deleteCreator)).response.status, 204)
+  assert.equal((await request('/api/proof/projects/archived', {}, deleteCreator)).body.length, 0)
+  assert.equal((await request(`/api/proof/files/${doomedFile.id}`, {}, deleteCreator)).response.status, 404)
+  assert.equal((await request(`/api/public/review/${doomedToken}`)).response.status, 404)
+  assert.equal((await request('/api/billing/me', {}, deleteCreator)).body.storageUsedBytes, 0, 'deleting frees storage')
 
   // Plan storage is enforced, and a nearly full disk stops uploads for everyone.
   const quotaDb = new pg.Client({ connectionString: databaseUrl })

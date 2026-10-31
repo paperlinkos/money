@@ -129,7 +129,7 @@ The debt tracker is also browser-first. It records debts and partial repayments 
 
 ## Deployment shape
 
-The current product can be deployed as static files only: build it with `npm run build:static` and serve `apps/web/dist` through Caddy with an SPA fallback to `index.html`, so direct visits to `/tools/invoice`, `/pricing`, and other routes work. Do not deploy the API yet; it has no production responsibility while documents are stored in each browser. When a backend is introduced later, run it privately (for example on `127.0.0.1`) and proxy only the required paths. PostgreSQL should only be reachable from that future API on the private server network. Set secrets in the process manager, never in the frontend build.
+The live site runs at `https://paperlinkos.site`: nginx serves the built web files and proxies the API, which runs privately on `127.0.0.1:3001` with PostgreSQL on the same server. See [deploy/README.md](./deploy/README.md) for the layout and how to release. Set secrets in the server's environment file, never in the frontend build.
 
 ### VPS deployment guide
 
@@ -160,4 +160,4 @@ location /api/ {
 
 For the first production tool, add a migration runner, PostgreSQL driver, authentication, and payment provider only as that tool requires them.
 
-For the static Caddy deployment workflow, release packaging, verification checklist, and rollback process, see [deploy/README.md](./deploy/README.md).
+For the live server layout and release steps, see [deploy/README.md](./deploy/README.md).

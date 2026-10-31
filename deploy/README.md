@@ -1,3 +1,21 @@
+# Live deployment (paperlinkos.site)
+
+The site runs on a shared VPS with other projects, so change only the paths below.
+
+- **Web files:** `/var/www/paperlinkos-web`, built with `VITE_SITE_URL=https://paperlinkos.site npm run build:static`.
+- **API:** `/opt/paperlinkos/app`, service `paperlinkos`, Node from `/opt/node22`, listening on `127.0.0.1:3001`.
+- **Settings and secrets:** `/etc/paperlinkos.env`.
+- **Database:** PostgreSQL database `paperlinkos`. Migrations in `apps/api/src/modules/*/db` are applied by hand, in the order listed in `scripts/run-api-integrations-disposable.mjs`.
+- **Uploads:** `/var/lib/paperlinkos/uploads`.
+- **Web settings:** the `paperlinkos.site` block in `/etc/nginx/sites-enabled/00-default`. Only the listed `/api/` prefixes go to this app; other paths go to the older shared service.
+- **Backups:** `/etc/cron.daily/paperlinkos-backup` keeps 14 days in `/var/backups/paperlinkos`, on the same disk.
+
+To release, upload the new `apps/web/dist` and `apps/api/dist`, apply any new migrations, run `npm ci --omit=dev --workspace=@platform/api --ignore-scripts` if the lockfile changed, then `systemctl restart paperlinkos`.
+
+---
+
+# Earlier static deployment notes (Caddy, not in use)
+
 # Static VPS deployment (Caddy)
 
 This project is currently deployable as a static Vite site. The invoice maker stores drafts in each visitor's browser; it does not need the Express API, PostgreSQL, Docker, or a background process in production.

@@ -58,7 +58,7 @@ const me = async (session) => (await request('/api/billing/me', {}, session)).bo
 
 try {
   await db.connect()
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  for (let tries = 0; tries < 100; tries++) { if (await fetch(`${base}/api/health`).then((r) => r.ok).catch(() => false)) break; await new Promise((resolve) => setTimeout(resolve, 100)) }
   const creator = await register('billing-free')
 
   assert.equal((await me(creator)).plan, 'free')
@@ -88,6 +88,13 @@ try {
   assert.equal((await me(creator)).galleryAllowance, 1)
   assert.equal((await gallery(creator, 'Fourth gallery')).response.status, 402)
   assert.equal((await me(creator)).storageLimitBytes, 4 * 1024 ** 3)
+
+  // Repeated wrong passwords lock that account's sign-in, but not other accounts.
+  const signIn = (email, password) => request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  for (let attempt = 0; attempt < 10; attempt++) assert.equal((await signIn(creator.email, 'wrong-password')).response.status, 401)
+  assert.equal((await signIn(creator.email, 'wrong-password')).response.status, 429)
+  assert.equal((await signIn(creator.email, 'safe-password-123')).response.status, 429, 'the right password also waits during a lockout')
+
 
   // An underpaid charge never settles.
   const pro = await register('billing-pro')

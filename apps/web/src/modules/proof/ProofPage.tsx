@@ -33,11 +33,20 @@ export function ProofPage() {
   const [note, setNote] = useState('')
   const [blocker, setBlocker] = useState<'signin' | 'upgrade' | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [archived, setArchived] = useState<Array<{ id: string; name: string; client_name: string }>>([])
   const load = () => api('/api/proof/projects').then((rows) => { setProjects(rows); setBlocker(null) }).catch((error) => { setNote(error.message); if (error.status === 401) setBlocker('signin') }).finally(() => setLoaded(true))
+  const loadArchived = () => api('/api/proof/projects/archived').then(setArchived).catch(() => setArchived([]))
+  async function removeArchived(id: string, name: string) {
+    if (!window.confirm(`Delete "${name}" permanently? Its photos and client feedback cannot be recovered. This frees storage on your plan.`)) return
+    const response = await fetch(`/api/proof/projects/${id}`, { method: 'DELETE', credentials: 'include' })
+    if (!response.ok) return setNote('Could not delete this gallery. Please try again.')
+    setNote(`Deleted "${name}".`)
+    void loadArchived()
+  }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); void loadArchived() }, [])
 
-  if (selected) return <ProjectDetail project={selected} onBack={() => { setSelected(null); load() }} />
+  if (selected) return <ProjectDetail project={selected} onBack={() => { setSelected(null); load(); void loadArchived() }} />
 
   return <section className="mx-auto max-w-5xl px-5 py-8">
     <a href="/account" className="text-sm font-bold text-emerald-700">← Dashboard</a>
@@ -53,6 +62,7 @@ export function ProofPage() {
         <b>{project.name}</b><span className="float-right text-sm">{project.status}</span><p className="text-sm text-slate-600">{project.client_name}</p>
       </button>)}
     </div>
+    {archived.length > 0 && <section className="mt-8"><h2 className="font-black">Archived galleries</h2><p className="mt-1 text-sm text-slate-600">Archived galleries still use storage. Delete them when you no longer need the files.</p><div className="mt-3 space-y-2">{archived.map((project) => <div key={project.id} className="flex items-center justify-between gap-3 rounded-xl border bg-white p-3 text-sm"><span><b>{project.name}</b> · {project.client_name}</span><button type="button" onClick={() => void removeArchived(project.id, project.name)} className="font-bold text-rose-700">Delete</button></div>)}</div></section>}
   </section>
 }
 

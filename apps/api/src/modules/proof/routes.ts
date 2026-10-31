@@ -30,6 +30,11 @@ export function proofRoutes(app: Express) {
     response.json(projects.rows)
   }))
 
+  app.get('/api/proof/projects/archived', auth(async (_request, response, userId) => {
+    const projects = await requireDb().query('select id,name,client_name,archived_at from proof_projects where owner_id=$1 and archived_at is not null order by archived_at desc', [userId])
+    response.json(projects.rows)
+  }))
+
   app.post('/api/proof/projects', auth(async (request, response, userId) => {
     const name = text(request.body?.name, 160)
     const clientName = text(request.body?.clientName, 120)

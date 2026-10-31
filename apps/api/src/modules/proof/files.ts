@@ -189,6 +189,31 @@ export function proofFileRoutes(app: Express) {
     } finally { client.release() }
   }))
 
+  // Permanently removes a creator's own gallery and frees its storage. A gallery pass slot does not come back.
+  app.delete('/api/proof/projects/:id', auth(async (request, response, userId) => {
+    const client = await requireDb().connect()
+    let files: Array<{ storage_name: string; preview_storage_name: string | null }>
+    try {
+      await client.query('begin')
+      const project = await client.query('select id from proof_projects where id=$1 and owner_id=$2 for update', [request.params.id, userId])
+      if (!project.rowCount) {
+        await client.query('rollback')
+        return void response.status(404).json({ error: 'Project not found.' })
+      }
+      files = (await client.query('select v.storage_name,v.preview_storage_name from proof_versions v join proof_deliverables d on d.id=v.deliverable_id where d.project_id=$1', [request.params.id])).rows
+      await client.query('delete from proof_projects where id=$1', [request.params.id])
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined)
+      throw error
+    } finally { client.release() }
+    // Removed only after the commit, so a failed delete never leaves a gallery with missing files.
+    for (const file of files) {
+      for (const name of [file.storage_name, file.preview_storage_name]) if (name) await unlink(resolve(root, name)).catch((error) => console.error('Could not remove gallery file', error))
+    }
+    response.sendStatus(204)
+  }))
+
   app.get('/api/proof/files/:id', auth(async (request, response, userId) => {
     const file = (await requireDb().query('select v.* from proof_versions v join proof_deliverables d on d.id=v.deliverable_id join proof_projects p on p.id=d.project_id where v.id=$1 and p.owner_id=$2', [request.params.id, userId])).rows[0]
     if (!file) return void response.status(404).json({ error: 'File not found.' })
