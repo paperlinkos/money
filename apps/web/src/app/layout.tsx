@@ -111,7 +111,7 @@ export function SiteFooter() {
     <footer className="border-t border-slate-900/10">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-8 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <p>© {new Date().getFullYear()} PaperlinkOS. The business side of creative work.</p>
-        <nav className="flex flex-wrap gap-x-4 gap-y-2 font-medium text-slate-800" aria-label="Footer navigation"><a href="/pricing" className="hover:text-emerald-700">Pricing</a><a href="/tools" className="hover:text-emerald-700">Free tools</a><a href="/privacy" className="hover:text-emerald-700">Privacy</a><a href="/contact" className="hover:text-emerald-700">Contact</a><a href="/feedback" className="hover:text-emerald-700">Feedback</a></nav>
+        <nav className="flex flex-wrap gap-x-4 gap-y-2 font-medium text-slate-800" aria-label="Footer navigation"><a href="/pricing" className="hover:text-emerald-700">Pricing</a><a href="/tools" className="hover:text-emerald-700">Free tools</a><a href="/privacy" className="hover:text-emerald-700">Privacy</a><a href="/terms" className="hover:text-emerald-700">Terms</a><a href="/contact" className="hover:text-emerald-700">Contact</a><a href="/feedback" className="hover:text-emerald-700">Feedback</a></nav>
       </div>
     </footer>
   )

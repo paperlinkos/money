@@ -5,6 +5,7 @@ import { proofRoutes } from './modules/proof/routes.js'
 import { proofFileRoutes, user } from './modules/proof/files.js'
 import { proofFeedbackRoutes } from './modules/proof/feedback.js'
 import { billingRoutes } from './modules/billing/routes.js'
+import { supportRoutes } from './modules/support/routes.js'
 
 const app = express()
 app.disable('x-powered-by')
@@ -44,6 +45,7 @@ proofRoutes(app)
 proofFileRoutes(app)
 proofFeedbackRoutes(app)
 billingRoutes(app)
+supportRoutes(app)
 
 app.use((_request, response) => {
   response.status(404).json({ error: 'Not found' })

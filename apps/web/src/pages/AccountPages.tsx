@@ -4,7 +4,7 @@ import { tools } from '../modules/tools'
 import { comingSoon, loadBilling, openBillingPortal, startCheckout, type Billing } from '../app/billing'
 
 type Account = {
-  account: { email: string }
+  account: { email: string; isAdmin?: boolean }
   business: { name: string; slug: string }
 }
 
@@ -44,6 +44,7 @@ export function AccountDashboard({ initialMode = 'signin' }: { initialMode?: 'si
   return <section className="mx-auto max-w-6xl px-5 py-10 sm:px-8">
     <p className="text-sm font-bold text-emerald-700">Dashboard</p>
     <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Welcome back, {account.business.name}</h1>
+    {account.account.isAdmin && <a href="/account/inbox" className="mt-3 inline-block text-sm font-bold text-emerald-700">Open support inbox →</a>}
     {message && <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{message}</p>}
 
     <div className="mt-8 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
@@ -104,7 +105,7 @@ export function AccountProfilePage() {
     <section className="mt-7 rounded-2xl border bg-white p-5">
       <h2 className="text-lg font-black">Account email</h2>
       <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{account.account.email}</p>
-      <p className="mt-3 text-sm leading-6 text-slate-600">Email changes and password management are not available yet. They will need a dedicated secure account-settings flow rather than a cosmetic form.</p>
+      <p className="mt-3 text-sm leading-6 text-slate-600">Email changes are not available yet. To change your password, <a href="/forgot-password" className="font-bold text-emerald-700">ask for a reset link</a>.</p>
     </section>
     <section className="mt-5 rounded-2xl border bg-white p-5">
       <h2 className="text-lg font-black">Tool business settings</h2>

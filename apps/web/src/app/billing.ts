@@ -5,7 +5,7 @@ export type Billing = { plan: PlanId; status: string | null; currentPeriodEnd: s
 // Mirrors apps/api/src/core/plans.ts. The API is the source of truth for limits.
 export const planCards = [
   { id: 'free' as const, name: 'Free', price: '₦0', period: 'forever', blurb: 'Everything you need to look professional from day one.', features: ['Your own booking link', '1 client gallery', '1 GB of storage', 'Invoices & quotations', 'Payment & debt tracker', 'Gear checklists and expense tracker'] },
-  { id: 'pro' as const, name: 'Pro', price: '₦5,000', period: 'per month', blurb: 'For creatives delivering work to clients every week.', features: ['Everything in Free', '15 active client galleries', '20 GB of storage', 'Version history & client approvals', 'Priority WhatsApp support'] },
+  { id: 'pro' as const, name: 'Pro', price: '₦5,000', period: 'per month', blurb: 'For creatives delivering work to clients every week.', features: ['Everything in Free', '15 active client galleries', '20 GB of storage', 'Version history & client approvals', 'Priority support'] },
   { id: 'studio' as const, name: 'Studio', price: '₦12,000', period: 'per month', blurb: 'For busy studios that never want to hit a limit.', features: ['Everything in Pro', 'Unlimited client galleries', '50 GB of storage', 'Early access to new features'] },
 ]
 export const galleryPass = { price: '₦2,500', copy: 'One extra client gallery for one project, with 3 GB more storage. No subscription.' }

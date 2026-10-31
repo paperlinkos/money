@@ -4,11 +4,12 @@ import { spawn } from 'node:child_process'
 const port = 3101
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error('DATABASE_URL is required for this integration test.')
-const server = spawn('node', ['apps/api/dist/server.js'], { cwd: process.cwd(), env: { ...process.env, PORT: String(port), WEB_ORIGIN: 'http://localhost:5173' }, stdio: 'ignore' })
+const server = spawn('node', ['apps/api/dist/server.js'], { cwd: process.cwd(), env: { ...process.env, PORT: String(port), WEB_ORIGIN: 'http://localhost:5173', ADMIN_EMAILS: 'admin-inbox@test.local', RESEND_API_KEY: '', MAIL_FROM: '' }, stdio: 'ignore' })
 const base = `http://127.0.0.1:${port}`
 let cookie = ''
+let forwardedFor = ''
 async function request(path, options = {}, jar = true) {
-  const response = await fetch(`${base}${path}`, { ...options, headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json', ...(jar && cookie ? { Cookie: cookie } : {}), ...(options.headers ?? {}) } })
+  const response = await fetch(`${base}${path}`, { ...options, headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json', ...(forwardedFor ? { 'X-Forwarded-For': forwardedFor } : {}), ...(jar && cookie ? { Cookie: cookie } : {}), ...(options.headers ?? {}) } })
   const set = response.headers.get('set-cookie'); if (set && jar) cookie = set.split(';')[0]
   const body = response.status === 204 ? null : await response.json()
   return { response, body }
@@ -107,5 +108,34 @@ try {
   const csrf = await request('/api/booking/services', { method: 'POST', body: JSON.stringify({ name: 'Blocked', priceNgn: 1, durationMinutes: 1 }), headers: { Origin: 'http://evil.example' } }); assert.equal(csrf.response.status, 403)
   const providerCookie = cookie; cookie = ''; result = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email: `other-${id}@test.local`, password: 'safe-password-123', businessName: 'Other Studio', slug: `other-${id}` }) }); assert.equal(result.response.status, 201); result = await request('/api/booking/services'); assert.equal(result.body.length, 0)
   cookie = providerCookie; result = await request('/api/auth/logout', { method: 'POST' }); assert.equal(result.response.status, 204); assert.equal((await request('/api/auth/me')).response.status, 401)
+  // Support inbox and password reset. Each visitor address gets its own rate limit.
+  forwardedFor = '203.0.113.10'
+  const owner = `owner-${id}@test.local`; const newPassword = 'new-password-456'
+  cookie = ''; result = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email: owner, password: 'safe-password-123', businessName: 'Owner', slug: `owner-${id}` }) }); assert.equal(result.response.status, 201)
+  const oldSession = cookie; assert.equal((await request('/api/auth/inbox')).response.status, 404, 'other accounts cannot see the inbox')
+  assert.equal((await request('/api/auth/me')).body.account.isAdmin, false)
+  cookie = ''; assert.equal((await request('/api/auth/inbox')).response.status, 401)
+  assert.equal((await request('/api/public/messages', { method: 'POST', body: JSON.stringify({ kind: 'question', message: '' }) }, false)).response.status, 400)
+  assert.equal((await request('/api/public/messages', { method: 'POST', body: JSON.stringify({ kind: 'password', message: 'forged' }) }, false)).response.status, 400, 'visitors cannot forge password requests')
+  assert.equal((await request('/api/public/messages', { method: 'POST', body: JSON.stringify({ kind: 'question', message: 'Hello there', contact: '0800' }) }, false)).response.status, 201)
+  const known = await request('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: owner }) }, false); const unknown = await request('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: `missing-${id}@test.local` }) }, false)
+  assert.equal(known.response.status, 200); assert.deepEqual(known.body, unknown.body, 'reset replies do not reveal accounts')
+  await request('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: owner }) }, false)
+  forwardedFor = '203.0.113.11'
+  result = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email: 'admin-inbox@test.local', password: 'safe-password-123', businessName: 'Admin', slug: `admin-${id}` }) }); assert.equal(result.response.status, 201)
+  const inbox = await request('/api/auth/inbox'); assert.equal(inbox.response.status, 200); assert.equal(typeof inbox.body.disk.usedPercent, 'number')
+  const help = inbox.body.messages.filter((item) => item.kind === 'password' && item.contact === owner); assert.equal(help.length, 1, 'repeat requests stay as one message'); assert.equal(inbox.body.messages.filter((item) => item.contact === `missing-${id}@test.local`).length, 0)
+  const question = inbox.body.messages.find((item) => item.message === 'Hello there'); assert.equal((await request(`/api/auth/inbox/${question.id}/reset-link`, { method: 'POST' })).response.status, 404, 'links are only for password requests')
+  const issued = await request(`/api/auth/inbox/${help[0].id}/reset-link`, { method: 'POST' }); assert.equal(issued.response.status, 200); assert.equal(issued.body.email, owner); const resetToken = issued.body.url.split('#')[1]
+  const replaced = await request(`/api/auth/inbox/${help[0].id}/reset-link`, { method: 'POST' }); const latestToken = replaced.body.url.split('#')[1]
+  assert.equal((await request('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token: resetToken, password: newPassword }) }, false)).response.status, 400, 'a newer link cancels older ones')
+  assert.equal((await request('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token: latestToken, password: 'short' }) }, false)).response.status, 400)
+  assert.equal((await request('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token: latestToken, password: newPassword }) }, false)).response.status, 200)
+  assert.equal((await request('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token: latestToken, password: 'another-password-789' }) }, false)).response.status, 400, 'links work once')
+  assert.equal((await request('/api/auth/me', { headers: { Cookie: oldSession } }, false)).response.status, 401, 'reset signs out old sessions')
+  assert.equal((await request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: owner, password: 'safe-password-123' }) }, false)).response.status, 401)
+  assert.equal((await request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: owner, password: newPassword }) }, false)).response.status, 200)
+  assert.ok(!(await request('/api/auth/inbox')).body.messages.some((item) => item.id === help[0].id), 'a completed reset closes the request')
+  assert.equal((await request(`/api/auth/inbox/${question.id}/done`, { method: 'POST' })).response.status, 204)
   console.log('Booking API integration passed')
 } finally { server.kill() }

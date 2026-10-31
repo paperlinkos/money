@@ -10,6 +10,9 @@ The site runs on a shared VPS with other projects, so change only the paths belo
 - **Web settings:** the `paperlinkos.site` block in `/etc/nginx/sites-enabled/00-default`. Only the listed `/api/` prefixes go to this app; other paths go to the older shared service.
 - **Backups:** `/etc/cron.daily/paperlinkos-backup` keeps 14 days in `/var/backups/paperlinkos`, on the same disk.
 
+- **Support inbox:** `/account/inbox`, for accounts listed in `ADMIN_EMAILS` in `/etc/paperlinkos.env`. Free options in use, and what to change later, are in `docs/LATER.md`.
+- **Copy a backup to your computer:** `scripts/pull-backup.sh`.
+
 To release, upload the new `apps/web/dist` and `apps/api/dist`, apply any new migrations, run `npm ci --omit=dev --workspace=@platform/api --ignore-scripts` if the lockfile changed, then `systemctl restart paperlinkos`.
 
 ---

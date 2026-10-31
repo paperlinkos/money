@@ -57,6 +57,7 @@ try {
     'apps/api/src/modules/proof/db/004_protected_preview.sql',
     'apps/api/src/modules/billing/db/001_billing.sql',
     'apps/api/src/modules/billing/db/002_gallery_pass.sql',
+    'apps/api/src/modules/support/db/001_support.sql',
   ]) await testDb.query(await readFile(path, 'utf8'))
   await testDb.end()
 

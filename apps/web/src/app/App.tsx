@@ -9,7 +9,8 @@ import { ProviderBooking, PublicBooking } from '../modules/booking/AccountBookin
 import { ExpensePage } from '../modules/expenses/ExpensePage'
 import { ProofPage } from '../modules/proof/ProofPage'
 import { PublicReviewPage } from '../modules/proof/PublicReviewPage'
-import { ContactPage, FeedbackPage, FutureToolPage, PrivacyPage, ToolsPage } from '../pages/InfoPages'
+import { ContactPage, FeedbackPage, FutureToolPage, PrivacyPage, TermsPage, ToolsPage } from '../pages/InfoPages'
+import { ForgotPasswordPage, InboxPage, ResetPasswordPage } from '../pages/SupportPages'
 import { BillingReturnPage, PricingPage } from '../pages/PricingPage'
 import { AccountDashboard, AccountProfilePage } from '../pages/AccountPages'
 
@@ -24,6 +25,9 @@ export function App() {
     : path === '/book' || path === '/book/' ? <PublicBookingDirectory />
     : path === '/tools/booking/account' ? <ProviderBooking initialMode={query.get('mode') === 'signup' ? 'signup' : 'signin'} initialTab={bookingTab} />
     : path === '/account' ? <AccountDashboard initialMode={query.get('mode') === 'signup' ? 'signup' : 'signin'} />
+    : path === '/account/inbox' ? <InboxPage />
+    : path === '/forgot-password' ? <ForgotPasswordPage />
+    : path === '/reset-password' ? <ResetPasswordPage />
     : path === '/profile' ? <AccountProfilePage />
     : path === '/billing/return' ? <BillingReturnPage />
     : path === '/tools/invoice' ? <InvoicePage />
@@ -36,12 +40,13 @@ export function App() {
                 : path === '/tools/inventory' ? <FutureToolPage name="Inventory Tool" />
                   : path === '/pricing' ? <PricingPage />
                     : path === '/privacy' ? <PrivacyPage />
+                      : path === '/terms' ? <TermsPage />
                       : path === '/contact' ? <ContactPage />
                         : path === '/feedback' ? <FeedbackPage />
                           : <HomePage />
   const titles: Record<string, string> = {
     '/account': 'Dashboard', '/profile': 'My profile', '/tools/booking/account': 'Booking workspace', '/billing/return': 'Payment',
-    '/tools/invoice': 'Invoices & quotations', '/tools/debts': 'Payment tracker', '/tools/gear': 'Gear checklists', '/tools/booking': 'Booking manager (offline)', '/tools/expenses': 'Expense tracker', '/tools/proof': 'Client galleries', '/tools': 'Free tools for creatives', '/tools/inventory': 'Inventory', '/pricing': 'Pricing', '/privacy': 'Privacy', '/contact': 'Contact', '/feedback': 'Feedback',
+    '/tools/invoice': 'Invoices & quotations', '/tools/debts': 'Payment tracker', '/tools/gear': 'Gear checklists', '/tools/booking': 'Booking manager (offline)', '/tools/expenses': 'Expense tracker', '/tools/proof': 'Client galleries', '/tools': 'Free tools for creatives', '/tools/inventory': 'Inventory', '/pricing': 'Pricing', '/privacy': 'Privacy', '/terms': 'Terms and refunds', '/forgot-password': 'Forgot password', '/reset-password': 'Reset password', '/account/inbox': 'Support inbox', '/contact': 'Contact', '/feedback': 'Feedback',
   }
   const descriptions: Record<string, string> = {
     '/account': 'Your PaperlinkOS dashboard.', '/profile': 'Manage your PaperlinkOS account profile.', '/tools/booking/account': 'Manage your services, availability and client appointment requests.',
@@ -55,6 +60,7 @@ export function App() {
     '/tools/inventory': 'A future PaperlinkOS tool. It is not available yet.',
     '/pricing': 'PaperlinkOS plans for creatives: Free, Pro ₦5,000/month and Studio ₦12,000/month.',
     '/privacy': 'How PaperlinkOS handles your data.',
+    '/terms': 'PaperlinkOS terms of use, cancellations and refunds.',
     '/contact': 'Contact PaperlinkOS.',
     '/feedback': 'Share product feedback with PaperlinkOS.',
   }

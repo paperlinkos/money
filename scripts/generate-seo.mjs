@@ -12,7 +12,7 @@ const fileValues = (() => {
 const rawUrl = process.env.VITE_SITE_URL || fileValues.VITE_SITE_URL || 'http://localhost:5173'
 const siteUrl = new URL(rawUrl).origin
 const publicDir = resolve(root, 'apps/web/public')
-const routes = ['/', '/tools', '/tools/invoice', '/tools/debts', '/tools/gear', '/pricing', '/privacy', '/contact', '/feedback']
+const routes = ['/', '/tools', '/tools/invoice', '/tools/debts', '/tools/gear', '/pricing', '/privacy', '/terms', '/contact', '/feedback']
 
 mkdirSync(publicDir, { recursive: true })
 writeFileSync(resolve(publicDir, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${routes.map((route) => `  <url><loc>${siteUrl}${route}</loc></url>`).join('\n')}\n</urlset>\n`)
